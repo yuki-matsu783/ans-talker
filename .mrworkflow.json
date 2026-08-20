@@ -1,0 +1,9 @@
+{
+  "branchPrefixTemplate": "feature-{issue}-{slug}",
+  "defaultBaseBranch": "main",
+  "plansDir": "plans",
+  "worklogDir": "worklog",
+  "reportsDir": "reports",
+  "specDirs": [".claude/docs/spec"],
+  "ddrDirs": [".claude/docs/ddr"]
+}

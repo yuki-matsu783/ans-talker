@@ -1,0 +1,99 @@
+{
+  "permissions": {
+    "defaultMode": "plan",
+    "deny": [
+      "Bash(git commit*)",
+      "PowerShell(git commit*)"
+    ]
+  },
+  "plansDirectory": "./plans",
+  "autoCompactWindow": 600000,
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh"
+            ],
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-direct-git-commit.sh"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git push*)",
+            "command": "bash",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/post-push-usage-report.sh"
+            ],
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(git push*)",
+            "command": "bash",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/post-push-usage-report.sh"
+            ],
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "if": "Bash(git push*)",
+            "command": "bash",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/post-push-compact-prompt.sh"
+            ],
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(git push*)",
+            "command": "bash",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/post-push-compact-prompt.sh"
+            ],
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell|mcp__github__issue_write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/post-issue-create-notice.sh"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

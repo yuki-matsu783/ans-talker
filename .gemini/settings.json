@@ -1,0 +1,60 @@
+{
+    "general": {
+        "plan": {
+            "directory": "./plans"
+        }
+    },
+    "hooks": {
+        "SessionStart": [
+            {
+                "matcher": "startup|resume|clear",
+                "hooks": [
+                    {
+                        "name": "session-start",
+                        "type": "command",
+                        "command": "bash \"${GEMINI_PROJECT_DIR}/.gemini/hooks/session-start.sh\"",
+                        "timeout": 30000
+                    }
+                ]
+            }
+        ],
+        "BeforeTool": [
+            {
+                "matcher": "run_shell_command|Bash|PowerShell",
+                "hooks": [
+                    {
+                        "name": "block-direct-git-commit",
+                        "type": "command",
+                        "command": "bash \"${GEMINI_PROJECT_DIR}/.gemini/hooks/block-direct-git-commit.sh\"",
+                        "timeout": 10000
+                    }
+                ]
+            }
+        ],
+        "AfterTool": [
+            {
+                "matcher": "run_shell_command|Bash|PowerShell",
+                "hooks": [
+                    {
+                        "name": "post-push-usage-report",
+                        "type": "command",
+                        "command": "bash \"${GEMINI_PROJECT_DIR}/.gemini/hooks/post-push-usage-report.sh\"",
+                        "timeout": 20000
+                    },
+                    {
+                        "name": "post-push-compact-prompt",
+                        "type": "command",
+                        "command": "bash \"${GEMINI_PROJECT_DIR}/.gemini/hooks/post-push-compact-prompt.sh\"",
+                        "timeout": 20000
+                    },
+                    {
+                        "name": "post-issue-create-notice",
+                        "type": "command",
+                        "command": "bash \"${GEMINI_PROJECT_DIR}/.gemini/hooks/post-issue-create-notice.sh\"",
+                        "timeout": 10000
+                    }
+                ]
+            }
+        ]
+    }
+}

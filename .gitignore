@@ -1,0 +1,41 @@
+# （このリポジトリでは未使用）移植元プロジェクトに存在した参考資料ディレクトリの名残。
+# `#` の無い裸の行だったためignoreパターンとして有効になっていたのを、issue #32でコメント化した。
+# 参考ディレクトリ
+
+# ビルド成果物
+/build/
+
+# apply-mr-workflow-to-projectスキルのsync-assets.shが生成するビルド用一時ディレクトリ
+/.claude/skills/apply-mr-workflow-to-project/assets/
+
+# エディタ
+.vscode/
+
+# ログ
+*.log
+
+# 対応工数レポート機能のローカル作業状態（セッションログのミラー・集計状態・push断面インデックス。
+# ブランチ横断・非コミット対象）。issue #23で、旧 post-push-save-logs.sh が使っていた /logs/ を
+# 廃止しこちらへ一本化した。
+/usage/
+
+# post-push-compact-prompt.shが保持する、レビュー依頼メッセージの参照リンク組み立て用ローカル
+# 作業状態（前回push時点のHEAD SHA。ブランチ横断・非コミット対象）
+/.claude/state/
+
+# .gemini/配下は.claude/への参照(シンボリックリンク/NTFSジャンクション)のみでGit管理下に置かない。
+# Gitはジャンクションをリンクとして認識せず中身をそのまま複製してしまうため（詳細:
+# .claude/docs/ddr/0017-gemini配下はGit管理下に置かずセットアップスクリプトで生成する.md）。
+# clone後は .claude/scripts/src/setup-gemini-links.sh を1度実行してリンクを作成する。
+/.gemini/docs
+/.gemini/hooks
+/.gemini/rules
+/.gemini/scripts
+/.gemini/skills
+
+# frontmatter抽出スクリプト（.claude/scripts/src/extract-frontmatter.sh）が生成する機械可読
+# インデックス。複数ブランチが並行してmarkdownのfrontmatterを編集すると生成物の近接行同士が
+# 競合していたため、issue #36でGit管理から外し生成物として扱う方針に変更した。SessionStart hook
+# （.claude/hooks/session-start.sh）がセッション開始のたびに自動再生成する（詳細:
+# .claude/docs/ddr/0025-frontmatterのindex.jsonlをGit管理から外しSessionStart-hookで生成する.md）。
+**/index.jsonl

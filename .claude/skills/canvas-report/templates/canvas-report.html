@@ -1,0 +1,468 @@
+<!--
+  canvas-report テンプレート（.claude/skills/canvas-report/SKILL.md 参照）
+
+  使い方:
+    1. このファイルを reports/<plan名>.html としてコピーする。
+    2. 下記スクリプト内の NODES / EDGES / GROUP_STYLE / EDGE_STYLE をあなたの調査結果の
+       データへ差し替える（サンプルの2グループ・数ノードは構成を示すための例）。
+    3. <title> / <header>内のタイトル・凡例の文言を書き換える。
+    4. パン/ズーム/ホバーハイライト/ミニマップ/詳細パネル/LODのJSロジックは基本的に
+       変更不要（そのまま使い回せる設計）。
+    5. mermaid図を1つも使わない場合は、mermaid.js の <script> タグを削除してよい。
+-->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>調査結果: &lt;調査タイトルをここに&gt;</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'media',
+    theme: {
+      extend: {
+        keyframes: {
+          dash: { to: { strokeDashoffset: -32 } },
+        },
+      },
+    },
+  }
+</script>
+<style>
+  .canvas-bg {
+    background-image: radial-gradient(circle, rgba(148,163,184,0.35) 1px, transparent 1px);
+    background-size: 26px 26px;
+  }
+  /* ノード形状の例。グループごとに使い分ける（丸・ダイヤ等も同じclip-path手法で追加可能） */
+  .node-hex {
+    clip-path: polygon(14% 0%, 86% 0%, 100% 50%, 86% 100%, 14% 100%, 0% 50%);
+  }
+  /* セマンティックズーム（LOD: level of detail）。scaleに応じてnode要素のdata-lodを
+     icon/compact/detailへ切り替え、表示する情報量を連続的に変える */
+  .node[data-lod="icon"] .lod-compact,
+  .node[data-lod="icon"] .lod-detail,
+  .node[data-lod="compact"] .lod-detail {
+    display: none;
+  }
+  .node[data-lod="detail"] {
+    z-index: 10;
+  }
+</style>
+</head>
+<body class="m-0 bg-slate-950 text-slate-100 font-sans overflow-hidden">
+
+  <header class="fixed top-0 inset-x-0 z-20 flex flex-wrap items-center justify-between gap-2 px-6 py-3
+                  bg-slate-950/80 backdrop-blur border-b border-slate-800">
+    <div>
+      <p class="text-[0.68rem] font-bold uppercase tracking-widest text-slate-500">issue #&lt;番号&gt; 調査結果</p>
+      <h1 class="text-base font-semibold text-slate-100">&lt;調査タイトルをここに&gt;</h1>
+    </div>
+    <p class="hidden md:block text-xs text-slate-500">ホイールでズーム（連続的に詳細度が変化）・ドラッグでパン・ホバーで関連ハイライト・クリックで詳細パネル</p>
+  </header>
+
+  <div id="viewport" class="canvas-bg absolute inset-0 pt-16 cursor-grab active:cursor-grabbing">
+    <div id="world" class="relative origin-top-left" style="width:1700px;height:1000px;">
+      <svg id="edges" class="absolute inset-0 pointer-events-none" width="1700" height="1000">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="fill-slate-400"></path>
+          </marker>
+          <!-- 双方向エッジが必要な場合は、以下のように始点側のマーカーも定義し、
+               path生成箇所で marker-start="url(#arrow-start)" を追加する
+          <marker id="arrow-start" viewBox="0 0 10 10" refX="2" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M10,0 L0,5 L10,10 z" class="fill-slate-400"></path>
+          </marker>
+          -->
+        </defs>
+      </svg>
+      <div id="clusters" class="absolute inset-0"></div>
+      <div id="nodes" class="absolute inset-0"></div>
+    </div>
+  </div>
+
+  <!-- ミニマップ: 全体像の把握と、クリック/ドラッグでの高速移動 -->
+  <div class="fixed top-16 right-4 z-20 mt-2">
+    <div id="minimap" class="relative rounded-lg border border-slate-700 bg-slate-900/90 backdrop-blur shadow-xl cursor-pointer overflow-hidden" style="width:200px;height:118px;">
+      <div id="minimap-nodes" class="absolute inset-0"></div>
+      <div id="minimap-viewport" class="absolute border-2 border-fuchsia-400/80 bg-fuchsia-400/10 pointer-events-none"></div>
+    </div>
+    <p class="text-[0.6rem] text-slate-500 mt-1 text-right">ミニマップ（クリックで移動）</p>
+  </div>
+
+  <div class="fixed bottom-6 right-6 z-20 flex flex-col gap-2">
+    <button id="zoom-in"  class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-lg leading-none">+</button>
+    <button id="zoom-out" class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-lg leading-none">−</button>
+    <button id="zoom-reset" class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[0.65rem]">FIT</button>
+  </div>
+
+  <!-- 凡例: GROUP_STYLE / EDGE_STYLE の内容に合わせて書き換える -->
+  <div class="fixed bottom-6 left-6 z-20 rounded-xl border border-slate-800 bg-slate-900/90 backdrop-blur px-4 py-3 text-[0.7rem] space-y-2 shadow-xl max-w-[220px]">
+    <div>
+      <p class="font-semibold text-slate-300 mb-1">ノード（形状・アイコンで種別を表現）</p>
+      <p class="flex items-center gap-2"><span class="w-3 h-3 rounded bg-emerald-400"></span>⚡ &lt;グループA&gt;（角丸四角）</p>
+      <p class="flex items-center gap-2"><span class="w-3 h-3 bg-sky-400" style="clip-path:polygon(20% 0,80% 0,100% 50%,80% 100%,20% 100%,0 50%)"></span>🧩 &lt;グループB&gt;（六角形）</p>
+      <p class="text-slate-500 mt-1">サイズ＝呼ばれている数（ハブ度）／📄付きはズームイン or クリックで詳細</p>
+    </div>
+    <div class="border-t border-slate-800 pt-2">
+      <p class="font-semibold text-slate-300 mb-1">ズーム段階（連続的に切り替わる）</p>
+      <p class="text-slate-500">縮小: アイコン＋名前のみ</p>
+      <p class="text-slate-500">標準: 説明・被参照数を表示</p>
+      <p class="text-slate-500">拡大: 詳細説明＋図解（📄付きノードのみ）</p>
+    </div>
+    <div class="border-t border-slate-800 pt-2">
+      <p class="font-semibold text-slate-300 mb-1">エッジ（用途ごとに色・線種）</p>
+      <p class="flex items-center gap-2"><span class="w-4 border-t-2 border-slate-400"></span>&lt;関係の種類1&gt;</p>
+      <p class="flex items-center gap-2"><span class="w-4 border-t-2 border-dashed border-rose-400"></span>&lt;関係の種類2&gt;</p>
+    </div>
+  </div>
+
+  <!-- 詳細パネル: ノードクリックで開く。markdownは生成時にHTMLへ事前変換、図解はmermaid.jsで描画 -->
+  <div id="detail-panel" class="fixed top-0 right-0 z-30 h-full w-full sm:w-[420px] bg-slate-900 border-l border-slate-700
+                                 shadow-2xl translate-x-full transition-transform duration-300 overflow-y-auto">
+    <div class="sticky top-0 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-5 py-4 flex items-start justify-between gap-3">
+      <div>
+        <p id="detail-sub" class="text-[0.65rem] uppercase tracking-widest text-slate-500"></p>
+        <h2 id="detail-title" class="text-lg font-semibold text-slate-100 mt-0.5"></h2>
+      </div>
+      <button id="detail-close" class="w-8 h-8 shrink-0 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">×</button>
+    </div>
+    <div id="detail-body" class="px-5 py-4 text-sm text-slate-300 space-y-4"></div>
+  </div>
+  <div id="detail-backdrop" class="fixed inset-0 z-25 bg-black/40 opacity-0 pointer-events-none transition-opacity duration-300"></div>
+
+<script>
+  mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+
+  // =====================================================================
+  // ここから下、NODES / EDGES / GROUP_STYLE / EDGE_STYLE の4つが
+  // 調査結果ごとに差し替える「データ」部分。以降のロジック（描画・パン/ズーム/
+  // ホバーハイライト/ミニマップ/LOD/詳細パネル）は変更不要。
+  // =====================================================================
+
+  // ---- ノード定義（サンプル: 2グループ・4ノード） ----
+  // group: GROUP_STYLEのキーに対応（形状・色・アイコンを決める）
+  // x/y: ノード中心の座標（world座標系。中心間300px以上を目安に間隔を空ける）
+  // detailHtml（任意）: 詳細ズーム/クリック時に表示するHTML（markdown相当の内容を事前変換して書く）
+  // mermaid（任意）: 詳細ズーム/クリック時に描画するmermaid図のソース（graph TD/LR等）
+  const NODES = [
+    {
+      id: 'SampleA1', group: 'typeA', x: 500, y: 260, label: 'サンプルノードA-1', desc: '短い説明文をここに',
+      detailHtml: `
+        <p><strong>役割</strong>: このノードが何をするものかを説明する。</p>
+        <ul class="list-disc list-inside space-y-1 text-slate-400">
+          <li>関連ノードとの関係を箇条書きで補足できる</li>
+        </ul>`,
+      mermaid: `graph LR\n  A[サンプルノードA-1] -->|関係の種類1| B[サンプルノードB-1]`,
+    },
+    { id: 'SampleA2', group: 'typeA', x: 900, y: 260, label: 'サンプルノードA-2', desc: '短い説明文をここに' },
+    {
+      id: 'SampleB1', group: 'typeB', x: 700, y: 620, label: 'サンプルノードB-1', desc: '被参照数が多いハブの例',
+      detailHtml: `<p>複数ノードから参照される「ハブ」の役割を持つノードの説明例。</p>`,
+    },
+    { id: 'SampleB2', group: 'typeB', x: 1050, y: 620, label: 'サンプルノードB-2', desc: '短い説明文をここに' },
+  ];
+
+  // ---- エッジ定義（サンプル） ----
+  // category: EDGE_STYLEのキーに対応（色・線種・太さを決める＝「関係の種類」を視覚化する）
+  const EDGES = [
+    { from: 'SampleA1', to: 'SampleB1', category: 'primary' },
+    { from: 'SampleA2', to: 'SampleB1', category: 'primary' },
+    { from: 'SampleA1', to: 'SampleB2', category: 'secondary' },
+  ];
+
+  // ---- ノードのグループごとの見た目 ----
+  const GROUP_STYLE = {
+    typeA: { shapeClass: 'rounded-xl', icon: '⚡', bar: 'bg-gradient-to-r from-emerald-400 to-emerald-600', card: 'border-emerald-400/40 hover:ring-emerald-400/60', dot: '#34d399' },
+    typeB: { shapeClass: 'node-hex',   icon: '🧩', bar: 'bg-gradient-to-r from-sky-400 to-sky-600',       card: 'border-sky-400/40 hover:ring-sky-400/60', dot: '#38bdf8' },
+  };
+
+  // ---- エッジのカテゴリごとの見た目 ----
+  const EDGE_STYLE = {
+    primary:   { stroke: '#94a3b8', dash: null,  width: 1.5, label: '関係の種類1' },
+    secondary: { stroke: '#fb7185', dash: '5 5', width: 1.5, label: '関係の種類2' },
+  };
+
+  // ---- クラスタ（グルーピング）表示。不要なら drawCluster呼び出しごと削除してよい ----
+  const CLUSTERS = [
+    { groupId: 'typeA', label: '<グループA>', border: 'border-emerald-500/30', bg: 'bg-emerald-500/5', text: 'text-emerald-300' },
+    { groupId: 'typeB', label: '<グループB>', border: 'border-sky-500/30', bg: 'bg-sky-500/5', text: 'text-sky-300' },
+  ];
+
+  // =====================================================================
+  // ここから下はテンプレートエンジン本体。通常は変更不要。
+  // =====================================================================
+
+  const nodesLayer = document.getElementById('nodes');
+  const clustersLayer = document.getElementById('clusters');
+  const svg = document.getElementById('edges');
+  const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
+  const WORLD_W = 1700, WORLD_H = 1000;
+
+  // ハブ度（他ノードから何回参照されているか）でノードサイズを決める
+  const inDegree = Object.fromEntries(NODES.map(n => [n.id, 0]));
+  EDGES.forEach(e => { inDegree[e.to] = (inDegree[e.to] || 0) + 1; });
+  function sizeFor(id) {
+    const d = inDegree[id] || 0;
+    if (d >= 8) return { w: 168, pad: 'px-5 py-4', font: 'text-sm' };
+    if (d >= 3) return { w: 148, pad: 'px-4 py-3', font: 'text-[0.8rem]' };
+    return { w: 132, pad: 'px-3.5 py-2.5', font: 'text-[0.75rem]' };
+  }
+
+  // ---- クラスタ背景（グループごとにノードを囲む） ----
+  function drawCluster(groupId, label, color) {
+    const members = NODES.filter(n => n.group === groupId);
+    if (members.length === 0) return;
+    const pad = 60;
+    const xs = members.map(n => n.x), ys = members.map(n => n.y);
+    const x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad;
+    const y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
+    const box = document.createElement('div');
+    box.className = `absolute rounded-3xl border border-dashed ${color.border} ${color.bg}`;
+    box.style.left = x0 + 'px';
+    box.style.top = y0 + 'px';
+    box.style.width = (x1 - x0) + 'px';
+    box.style.height = (y1 - y0) + 'px';
+    box.innerHTML = `<span class="absolute -top-3 left-4 px-2 text-[0.65rem] font-bold tracking-wide ${color.text} bg-slate-950 rounded">${label}</span>`;
+    clustersLayer.appendChild(box);
+  }
+  CLUSTERS.forEach(c => drawCluster(c.groupId, c.label, c));
+
+  // ---- ノード描画 ----
+  NODES.forEach(n => {
+    const s = GROUP_STYLE[n.group];
+    const sz = sizeFor(n.id);
+    const el = document.createElement('div');
+    el.dataset.id = n.id;
+    el.style.left = n.x + 'px';
+    el.style.top = n.y + 'px';
+    el.style.width = sz.w + 'px';
+    el.className = `node absolute -translate-x-1/2 -translate-y-1/2 border ${s.card} ${s.shapeClass}
+      bg-slate-900/95 backdrop-blur ${sz.pad} shadow-lg shadow-black/30 ring-2 ring-transparent
+      transition-all duration-200 cursor-pointer select-none text-center`;
+    el.dataset.lod = 'compact';
+    const inlineMermaidId = n.mermaid ? `mmd-inline-${n.id}` : null;
+    el.innerHTML = `
+      <div class="h-1 w-6 mx-auto rounded-full ${s.bar} mb-1.5"></div>
+      <div class="${sz.font} font-semibold text-slate-100">${s.icon} ${n.label}${n.detailHtml ? ' <span class=\"text-slate-500\">📄</span>' : ''}</div>
+      <div class="lod-compact">
+        <div class="text-[0.62rem] text-slate-400 mt-0.5 leading-snug">${n.desc}</div>
+        ${inDegree[n.id] >= 3 ? `<div class="text-[0.6rem] text-slate-500 mt-1">被参照 ${inDegree[n.id]}件</div>` : ''}
+      </div>
+      ${n.detailHtml ? `
+      <div class="lod-detail mt-2 pt-2 border-t border-slate-700 text-left text-[0.68rem] text-slate-300 space-y-2">
+        ${n.detailHtml}
+        ${inlineMermaidId ? `<div class="rounded bg-slate-800/60 p-2 overflow-x-auto"><pre class="mermaid" id="${inlineMermaidId}">${n.mermaid}</pre></div>` : ''}
+      </div>` : ''}
+    `;
+    // ノード上でのmousedownはキャンバスのパン開始に巻き込まれないようにする
+    el.addEventListener('mousedown', (ev) => ev.stopPropagation());
+    el.addEventListener('click', () => { if (n.detailHtml) openDetail(n); });
+    nodesLayer.appendChild(el);
+  });
+
+  // ---- エッジ描画 ----
+  function edgePath(a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    const offset = Math.min(36, dist * 0.12);
+    const ux = -dy / dist, uy = dx / dist;
+    return { d: `M ${a.x},${a.y} Q ${mx + ux * offset},${my + uy * offset} ${b.x},${b.y}`, mx: mx + ux * offset, my: my + uy * offset };
+  }
+
+  EDGES.forEach(e => {
+    const a = byId[e.from], b = byId[e.to];
+    const style = EDGE_STYLE[e.category];
+    const { d } = edgePath(a, b);
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('marker-end', 'url(#arrow)');
+    // 双方向にしたい場合は次の行のコメントを外す（<defs>内の#arrow-startも有効化すること）
+    // path.setAttribute('marker-start', 'url(#arrow-start)');
+    if (style.dash) path.setAttribute('stroke-dasharray', style.dash);
+    path.dataset.from = e.from;
+    path.dataset.to = e.to;
+    path.dataset.baseStroke = style.stroke;
+    path.setAttribute('class', 'fill-none opacity-60 transition-all duration-200 animate-[dash_1.6s_linear_infinite]');
+    path.style.stroke = style.stroke;
+    path.style.strokeWidth = style.width;
+    svg.appendChild(path);
+  });
+
+  // ---- ホバーで関連ノード・エッジをハイライト（＝参照関係のハイライトを兼ねる） ----
+  const allNodeEls = document.querySelectorAll('.node');
+  const allPathEls = svg.querySelectorAll('path');
+
+  function setHighlight(id) {
+    if (!id) {
+      allNodeEls.forEach(el => el.classList.remove('opacity-35', 'ring-fuchsia-400'));
+      allPathEls.forEach(p => { p.classList.remove('opacity-100'); p.classList.add('opacity-60'); p.style.stroke = p.dataset.baseStroke; });
+      return;
+    }
+    allNodeEls.forEach(el => {
+      const related = el.dataset.id === id ||
+        EDGES.some(e => (e.from === id && e.to === el.dataset.id) || (e.to === id && e.from === el.dataset.id));
+      el.classList.toggle('opacity-35', !related);
+      el.classList.toggle('ring-fuchsia-400', related && el.dataset.id !== id);
+    });
+    allPathEls.forEach(p => {
+      const related = p.dataset.from === id || p.dataset.to === id;
+      p.classList.toggle('opacity-100', related);
+      p.classList.toggle('opacity-60', !related);
+      p.style.stroke = related ? '#e879f9' : p.dataset.baseStroke;
+    });
+  }
+  allNodeEls.forEach(el => {
+    el.addEventListener('mouseenter', () => setHighlight(el.dataset.id));
+    el.addEventListener('mouseleave', () => setHighlight(null));
+  });
+
+  // ---- 詳細パネル: markdownは生成時HTML事前変換済み、図解はmermaid.jsで描画 ----
+  const detailPanel = document.getElementById('detail-panel');
+  const detailBackdrop = document.getElementById('detail-backdrop');
+  const detailTitle = document.getElementById('detail-title');
+  const detailSub = document.getElementById('detail-sub');
+  const detailBody = document.getElementById('detail-body');
+  let mermaidSeq = 0;
+
+  async function openDetail(n) {
+    const s = GROUP_STYLE[n.group];
+    detailTitle.textContent = `${s.icon} ${n.label}`;
+    detailSub.textContent = n.group;
+    let bodyHtml = n.detailHtml || '';
+    let mermaidId = null;
+    if (n.mermaid) {
+      mermaidId = `mmd-${++mermaidSeq}`;
+      bodyHtml += `<div class="mt-2 rounded-lg bg-slate-800/60 p-3 overflow-x-auto"><pre class="mermaid" id="${mermaidId}">${n.mermaid}</pre></div>`;
+    }
+    detailBody.innerHTML = bodyHtml;
+    detailPanel.classList.remove('translate-x-full');
+    detailBackdrop.classList.remove('opacity-0', 'pointer-events-none');
+    if (mermaidId) {
+      const el = document.getElementById(mermaidId);
+      await mermaid.run({ nodes: [el] });
+    }
+  }
+  function closeDetail() {
+    detailPanel.classList.add('translate-x-full');
+    detailBackdrop.classList.add('opacity-0', 'pointer-events-none');
+  }
+  document.getElementById('detail-close').addEventListener('click', closeDetail);
+  detailBackdrop.addEventListener('click', closeDetail);
+
+  // ---- セマンティックズーム（LOD）: scaleの連続値に応じてノードの詳細度を3段階で自動切替 ----
+  // icon    (scale <  LOD_ICON_MAX)   : アイコン＋ラベルのみ
+  // compact (LOD_ICON_MAX〜DETAIL_MIN): 標準カード（説明・被参照数）＝これまでの既定表示
+  // detail  (scale >= LOD_DETAIL_MIN) : detailHtml（事前変換markdown）＋mermaid図をインライン表示
+  const LOD_ICON_MAX = 0.8, LOD_DETAIL_MIN = 1.4;
+  const detailRendered = new Set(); // 一度描画したmermaidノードidは再描画しない
+
+  function lodFor(s) {
+    if (s < LOD_ICON_MAX) return 'icon';
+    if (s < LOD_DETAIL_MIN) return 'compact';
+    return 'detail';
+  }
+
+  async function updateLOD() {
+    const lod = lodFor(scale);
+    for (const el of allNodeEls) {
+      if (el.dataset.lod === lod) continue; // 変化なしなら何もしない（wheel連打時の負荷軽減）
+      el.dataset.lod = lod;
+      const n = byId[el.dataset.id];
+      const sz = sizeFor(n.id);
+      // detail段階はdetailHtml/mermaidを収めるため横幅を広げる。近接ノードと重なる場合は
+      // z-index（CSSの.node[data-lod="detail"]規則）で前面表示することを許容し、
+      // 自動レイアウト調整（座標の押し出し）は行わない設計とする
+      el.style.width = (lod === 'detail' ? Math.max(280, sz.w + 140) : sz.w) + 'px';
+      if (lod === 'detail' && n.mermaid && !detailRendered.has(n.id)) {
+        detailRendered.add(n.id);
+        const mmEl = document.getElementById(`mmd-inline-${n.id}`);
+        if (mmEl) await mermaid.run({ nodes: [mmEl] });
+      }
+    }
+  }
+
+  // ---- パン & ズーム ----
+  const viewport = document.getElementById('viewport');
+  const world = document.getElementById('world');
+  let scale = 0.62, panX = 60, panY = 30;
+  let dragging = false, lastX = 0, lastY = 0;
+  function applyTransform() {
+    world.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    updateMinimapViewport();
+    updateLOD();
+  }
+  applyTransform();
+
+  viewport.addEventListener('wheel', (ev) => {
+    ev.preventDefault();
+    const rect = viewport.getBoundingClientRect();
+    const mouseX = ev.clientX - rect.left, mouseY = ev.clientY - rect.top;
+    const prevScale = scale;
+    scale = Math.min(2.2, Math.max(0.3, scale * (ev.deltaY < 0 ? 1.1 : 0.9)));
+    panX = mouseX - (mouseX - panX) * (scale / prevScale);
+    panY = mouseY - (mouseY - panY) * (scale / prevScale);
+    applyTransform();
+  }, { passive: false });
+
+  viewport.addEventListener('mousedown', (ev) => { dragging = true; lastX = ev.clientX; lastY = ev.clientY; });
+  window.addEventListener('mousemove', (ev) => {
+    if (!dragging) return;
+    panX += ev.clientX - lastX; panY += ev.clientY - lastY;
+    lastX = ev.clientX; lastY = ev.clientY;
+    applyTransform();
+  });
+  window.addEventListener('mouseup', () => dragging = false);
+
+  document.getElementById('zoom-in').addEventListener('click', () => { scale = Math.min(2.2, scale * 1.2); applyTransform(); });
+  document.getElementById('zoom-out').addEventListener('click', () => { scale = Math.max(0.3, scale * 0.8); applyTransform(); });
+  document.getElementById('zoom-reset').addEventListener('click', () => { scale = 0.62; panX = 60; panY = 30; applyTransform(); });
+
+  // ---- ミニマップ: 全体像の把握とクリック/ドラッグでの高速移動 ----
+  const minimap = document.getElementById('minimap');
+  const minimapNodes = document.getElementById('minimap-nodes');
+  const minimapViewportEl = document.getElementById('minimap-viewport');
+  const MM_W = 200, MM_H = 118;
+  const mmScale = Math.min(MM_W / WORLD_W, MM_H / WORLD_H);
+
+  NODES.forEach(n => {
+    const dot = document.createElement('div');
+    dot.className = 'absolute rounded-full';
+    dot.style.width = '4px';
+    dot.style.height = '4px';
+    dot.style.left = (n.x * mmScale) + 'px';
+    dot.style.top = (n.y * mmScale) + 'px';
+    dot.style.background = GROUP_STYLE[n.group].dot;
+    minimapNodes.appendChild(dot);
+  });
+
+  function updateMinimapViewport() {
+    const vw = viewport.clientWidth, vh = viewport.clientHeight;
+    const worldX0 = -panX / scale, worldY0 = -panY / scale;
+    const worldW = vw / scale, worldH = vh / scale;
+    minimapViewportEl.style.left = Math.max(0, worldX0 * mmScale) + 'px';
+    minimapViewportEl.style.top = Math.max(0, worldY0 * mmScale) + 'px';
+    minimapViewportEl.style.width = Math.min(MM_W, worldW * mmScale) + 'px';
+    minimapViewportEl.style.height = Math.min(MM_H, worldH * mmScale) + 'px';
+  }
+
+  function jumpFromMinimap(ev) {
+    const rect = minimap.getBoundingClientRect();
+    const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+    const targetWorldX = mx / mmScale, targetWorldY = my / mmScale;
+    const vw = viewport.clientWidth, vh = viewport.clientHeight;
+    panX = vw / 2 - targetWorldX * scale;
+    panY = vh / 2 - targetWorldY * scale;
+    applyTransform();
+  }
+  let mmDragging = false;
+  minimap.addEventListener('mousedown', (ev) => { mmDragging = true; jumpFromMinimap(ev); });
+  window.addEventListener('mousemove', (ev) => { if (mmDragging) jumpFromMinimap(ev); });
+  window.addEventListener('mouseup', () => mmDragging = false);
+</script>
+
+</body>
+</html>
