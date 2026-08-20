@@ -96,8 +96,9 @@
           <h3 class="font-bold">実例確認の題材</h3>
         </div>
         <p class="text-sm leading-relaxed text-slate-700">
-          使い捨ての最小フィクスチャを実装時に作る。
-          <strong>投稿直前まで</strong>を確認範囲とする案を提案（<span class="text-amber-700">要合意</span>）。
+          <strong>ローカルGitLabに演習用プロジェクトを1つ作り、実投稿まで確認する</strong>
+          （<span class="text-emerald-700">flow-id 2-9 でレビュー決定</span>）。
+          題材はこのリポジトリに置かない。
         </p>
       </div>
 
@@ -324,6 +325,36 @@ fatal: repository 'plaindir' does not exist</pre>
     </div>
   </section>
 
+  <!-- フェーズ3の検証環境 -->
+  <section class="mb-12">
+    <h2 class="text-xl font-bold text-slate-900 border-l-4 border-emerald-500 pl-3 mb-4">フェーズ3で用意する検証環境（flow-id 2-9 で決定）</h2>
+    <div class="bg-white rounded-lg border border-slate-200 p-6">
+      <p class="text-sm text-slate-700 leading-relaxed mb-4">
+        当初は「実投稿の対象が本PR #2 しかないため投稿直前で止める」と提案していたが、
+        レビューで<strong>ローカルGitLabに演習用プロジェクトを1つ作り、実投稿まで確認する</strong>と決まった。
+        GitHub側の公開リポジトリにダミー指摘を残さずに済む。
+      </p>
+      <div class="grid gap-3 md:grid-cols-2">
+        <div class="rounded border border-slate-200 p-3">
+          <p class="text-xs font-bold text-slate-500 mb-1">演習用プロジェクト</p>
+          <p class="text-sm">ローカルGitLabに1つ（例 <code class="bg-slate-100 px-1 rounded">root/answer-talker-verify</code>）</p>
+        </div>
+        <div class="rounded border border-slate-200 p-3">
+          <p class="text-xs font-bold text-slate-500 mb-1">受講者のMR</p>
+          <p class="text-sm"><strong>1ファイルに詰め込んだ実装</strong> → default へのMR</p>
+        </div>
+        <div class="rounded border border-slate-200 p-3">
+          <p class="text-xs font-bold text-slate-500 mb-1">正解ソース</p>
+          <p class="text-sm">同じ機能を<strong>3ファイルへ分割</strong>。URL clone／ローカルパスの両形態を試す</p>
+        </div>
+        <div class="rounded border border-slate-200 p-3">
+          <p class="text-xs font-bold text-slate-500 mb-1">まとめて確認できること</p>
+          <p class="text-sm">受け入れ条件の実例確認・ネタバレ検査・<strong>GitLab側の投稿処理</strong>（論点2で確認したのは取得までで、投稿は未確認）</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- 未決定事項 -->
   <section class="mb-12">
     <h2 class="text-xl font-bold text-slate-900 border-l-4 border-amber-500 pl-3 mb-4">未決定事項（設計フェーズで決める）</h2>
@@ -342,7 +373,7 @@ fatal: repository 'plaindir' does not exist</pre>
           <tr><td class="px-4 py-2">3</td><td class="px-4 py-2">2</td><td class="px-4 py-2">関数名（<code class="bg-slate-100 px-1 rounded">get_mr_diff</code> は既存の <code class="bg-slate-100 px-1 rounded">get_mr_diff_url</code> と紛らわしい）</td></tr>
           <tr><td class="px-4 py-2">4</td><td class="px-4 py-2">3</td><td class="px-4 py-2">正解ソースの後始末を呼び出し側に委ねるか、<code class="bg-slate-100 px-1 rounded">--cleanup</code> サブコマンドにするか</td></tr>
           <tr><td class="px-4 py-2">5</td><td class="px-4 py-2">5</td><td class="px-4 py-2">「一般語・言語キーワード」の除外リストをどこに持つか</td></tr>
-          <tr><td class="px-4 py-2">6</td><td class="px-4 py-2">6</td><td class="px-4 py-2">実例確認で実際にMRへ投稿するか、投稿直前で止めるか</td></tr>
+          <tr class="bg-emerald-50"><td class="px-4 py-2 line-through text-slate-400">6</td><td class="px-4 py-2">6</td><td class="px-4 py-2"><s class="text-slate-400">実例確認で実際にMRへ投稿するか</s> → <strong class="text-emerald-700">解消（flow-id 2-9）</strong>。<strong>ローカルGitLabに演習用プロジェクトを1つ作り、実投稿まで確認する</strong></td></tr>
         </tbody>
       </table>
     </div>
