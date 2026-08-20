@@ -22,7 +22,14 @@ keywords: [answer-talker, 検証結果, 単体テスト, GitLab, 別解, ネタ�
 
 ## V1. 単体テスト
 
-`.claude/scripts/test/` の全13本を実行した結果。
+`.claude/scripts/test/` の全**15本**を実行した結果。
+
+**当初この節を「全13本」と書いていたのは誤りだった。** 全テストを1つのループでまとめて実行した
+ところ2分でタイムアウトし、**打ち切られた時点までの13本しか出力されていなかった**のを全件と
+読み違えた。ループの完走を確認せずに件数を数えたことが原因である。実際は
+`test_usage_tracking.sh` と `test_vcs_provider.sh` が残っており、分割して実行して確認した。
+**`Provider.sh` を触った本ブランチにとって `test_vcs_provider.sh`（143アサーション）は
+最も重要なテストであり、それを数え落としていた。**
 
 | テスト | 結果 |
 |---|---|
@@ -39,8 +46,12 @@ keywords: [answer-talker, 検証結果, 単体テスト, GitLab, 別解, ネタ�
 | `test_session_start.sh` | `passed=35 failures=0` |
 | `test_update_handoff_progress.sh` | `passed=45 failures=0` |
 | `test_post_issue_create_notice.sh` | `passed=14 failures=0`（当初 `failures=1`。**テスト側の不備**を修正。下記） |
+| **`test_usage_tracking.sh`** | `passed=90 failures=0` |
+| **`test_vcs_provider.sh`** | `passed=143 failures=0` |
 
 `Provider.sh` を触ったため既存テストの退行を確認する必要があったが、**退行は無い**。
+とくに `test_vcs_provider.sh` の143アサーションが全て通っており、ラベル引数の追加が
+`adversarial-review` 側の経路を壊していないことをここで担保している。
 
 ### 当初1件失敗していたが、原因はテストコード側だった
 
@@ -216,7 +227,7 @@ GitHub・GitLab双方の返却JSONは**キー集合が完全に一致**する
 - GitLab MR へラベル付きで実投稿し、新しいコメントが `Claude Codeより（演習レビュー）:`・
   サマリが `Claude Codeより: 演習レビュー（AIによる自動レビュー）の結果です。` になることを確認した
   （同じMRに残っていた以前の投稿は `敵対的レビュー` のままで、既存分に影響しないことも同時に確認できた）。
-- 単体テスト13本に退行なし（V1）。
+- 単体テスト15本に退行なし（V1）。
 
 ラベル文言は当初 `演習レビュー（正解照合）` を試したが、本文が
 `Claude Codeより（演習レビュー（正解照合））:` と二重括弧になり読みづらいため `演習レビュー` にした。
