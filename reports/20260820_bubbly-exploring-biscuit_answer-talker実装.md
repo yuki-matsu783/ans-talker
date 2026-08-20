@@ -38,19 +38,38 @@ keywords: [answer-talker, 検証結果, 単体テスト, GitLab, 別解, ネタ�
 | `test_search_frontmatter.sh` | `passed=114 failures=0` |
 | `test_session_start.sh` | `passed=35 failures=0` |
 | `test_update_handoff_progress.sh` | `passed=45 failures=0` |
-| **`test_post_issue_create_notice.sh`** | **`passed=13 failures=1`（既存不具合。下記）** |
+| `test_post_issue_create_notice.sh` | `passed=14 failures=0`（当初 `failures=1`。**テスト側の不備**を修正。下記） |
 
 `Provider.sh` を触ったため既存テストの退行を確認する必要があったが、**退行は無い**。
 
-### 唯一の失敗は本ブランチと無関係な既存不具合
+### 当初1件失敗していたが、原因はテストコード側だった
 
-`test_post_issue_create_notice.sh` の1件は、`git worktree` で `origin/main` を切り出して同じテストを
-実行し、**そちらでも同じ1件が失敗する**ことを確認した。原因は
-`.claude/hooks/post-issue-create-notice.sh` の `write_additional_context` が、Windowsネイティブjqの
-付与するCRを `tr -d '\r'` で落としていないことで、期待値と8バイト差が出る
-（`.claude/rules/shell-script-style.md`「文字コード」に既知として記載のある事象）。
+`test_post_issue_create_notice.sh` の1件は、`git worktree` で `origin/main` を切り出しても同じく
+失敗した。**そこから「本ブランチと無関係な既存不具合」と結論づけたのは誤りだった**——
+`origin/main` でも落ちることは、プロダクション側の不具合であることを意味しない。
+レビューでの指摘を受けて切り分け直した結果、**検査対象ではなくテストの取り出し方の不備**と判明した。
 
-**本issueのスコープ外のため修正していない。別issueとして起票することを提案する。**
+| 確認したもの | 結果 |
+|---|---|
+| `NOTICE_TEXT`（入力）のCR | 0個 |
+| hookスクリプト自体のCR | 0個 |
+| **出力JSONの文字列値の中の `\r` エスケープ** | **0個**（`\n` は正しく6個） |
+| 生JSONのCR | 1個＝1行JSONの行末のみ（JSONパースに無害） |
+| **テストが `jq -r` で取り出した後のCR** | **7個** |
+
+WindowsネイティブjqはCRLFで出力するため、`jq -r` で**複数行の値**を取り出すと**行の途中**にCRが残る。
+コマンド置換が落とすのは末尾の改行だけなので、期待値と `行数-1` バイトずれる。
+**単一行の値では表面化しない**（直上の `hookEventName` のアサーションは通っていた）ため、
+「見た目は同じなのに複数行の値でだけ失敗する」という気づきにくい形になっていた。
+
+**修正**: 取り出し側へ `| tr -d '\r'` を足した（1行＋理由コメント）。`passed=14 failures=0` になった。
+`write_additional_context` は変更していない（出すJSONは元から正しい）。
+
+**教訓**: 「`origin/main` でも失敗する」は**既存不具合の証拠ではなく、テストが古くから間違っている
+可能性を含む**。切り分けるには、検査対象の出力そのもの（ここでは生JSON）を直接見る必要がある。
+なお、この切り分けの過程で `grep`/`sed` にバックスラッシュを含むパターンを渡してCR判定を2度誤った
+（`.claude/rules/shell-script-style.md` に既知として記載のある罠）。計測はヒアドキュメント経由の
+パターンファイルとバイト数比較で行うのが確実である。
 
 ## V2. 構文チェック
 
@@ -243,7 +262,8 @@ self-hosted GitLabのホスト・ポートもURLからしか決まらないた�
 
 ## 残課題・レビューで諮りたいこと
 
-1. **`test_post_issue_create_notice.sh` の既存failure**を別issueとして起票してよいか。
+1. ~~`test_post_issue_create_notice.sh` の既存failureを別issueとして起票してよいか。~~
+   **決着**: テスト側の不備と判明したため、1行修正を本ブランチに含めることでレビューの合意を得た。
 2. **パターン②の major/high 指摘**を、このまま投稿対象としてよいか
    （②'により同調圧力ではないと判断したが、「入出力を1ファイルにまとめる」流儀を採る受講者には
    強めの指摘になる）。

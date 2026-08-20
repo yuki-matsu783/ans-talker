@@ -24,8 +24,8 @@
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
       <div class="card bg-white rounded-lg border border-slate-200 p-5">
         <p class="text-xs text-slate-500 mb-1">単体テスト</p>
-        <p class="text-2xl font-bold text-slate-900">12<span class="text-base font-normal text-slate-400"> / 13 本</span></p>
-        <p class="text-xs text-slate-500 mt-1">failures=0。残る1本は既存不具合</p>
+        <p class="text-2xl font-bold text-slate-900">13<span class="text-base font-normal text-slate-400"> / 13 本</span></p>
+        <p class="text-xs text-slate-500 mt-1">全て failures=0（1本はテスト側を修正）</p>
       </div>
       <div class="card bg-white rounded-lg border border-slate-200 p-5">
         <p class="text-xs text-slate-500 mb-1">実機検証</p>
@@ -205,12 +205,14 @@
   <section class="mb-6">
     <h2 class="text-xl font-bold text-slate-900 mb-4">レビューで諮りたいこと</h2>
     <div class="bg-white rounded-lg border border-slate-200 divide-y divide-slate-100">
-      <div class="p-5">
-        <p class="font-bold text-slate-900 text-sm mb-1">1. 既存テストの failure を別issueにしてよいか</p>
+      <div class="p-5 bg-emerald-50">
+        <p class="font-bold text-slate-900 text-sm mb-1">1. 既存テストの failure（<span class="text-emerald-700">決着済み</span>）</p>
         <p class="text-xs text-slate-600 leading-relaxed">
-          <code class="bg-slate-100 px-1 rounded">test_post_issue_create_notice.sh</code> の1件は
-          <code class="bg-slate-100 px-1 rounded">origin/main</code> でも失敗することを worktree で確認済み。
-          WindowsネイティブjqのCR付与に起因する既知の類型で、本issueのスコープ外。
+          当初「<code class="bg-white px-1 rounded">origin/main</code> でも落ちるので既存不具合」と報告したが、
+          <strong>それは誤りだった</strong>。切り分け直した結果
+          <strong>テストの取り出し方の不備</strong>と判明（出力JSONの文字列値に <code class="bg-white px-1 rounded">\r</code> は0個。
+          CRは <code class="bg-white px-1 rounded">jq -r</code> が複数行を出すときに行の途中へ残る）。
+          取り出し側へ <code class="bg-white px-1 rounded">| tr -d '\r'</code> を足して <strong>passed=14 failures=0</strong>。
         </p>
       </div>
       <div class="p-5">
