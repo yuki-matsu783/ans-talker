@@ -17,14 +17,20 @@ keywords: [answer-talker, adversarial-review, Provider.sh, get_mr_diff, shallow 
 | 論点 | 結論 |
 |---|---|
 | 1. `adversarial-review` からの再利用 | findings JSONスキーマ・承認モデル・選別表・投稿関数は**そのまま再利用**。観点の出どころと入力（正解ソース）が固有。**実施回数の上限機構は課さない** |
-| 2. MR番号起点のdiff取得 | `gh api repos/{owner}/{repo}/pulls/<n>/files` を採る（`gh pr diff` ではない）。返却は `{base, head, files:[{path,status,additions,deletions,patch}]}` |
+| 2. MR番号起点のdiff取得 | `gh api repos/{owner}/{repo}/pulls/<n>/files` を採る（`gh pr diff` ではない）。返却は `{base, head, files:[{path,status,additions,deletions,patch}]}`。**GitLabでは `/merge_requests/:iid/diffs` ＋ MRメタ情報の2回**で同じ形へ正規化できることを実機で確認した |
 | 3. 正解ソースの取得 | **ローカルパスはcloneせず読み取り専用でそのまま使う**（`--depth` が効かないことを実機で確認）。URLのみ shallow clone し `trap` で後始末 |
 | 4. ファイル対応付け | 機械的に決めるのは「同一パス」「ファイル名一致」まで。対応が付かない要素の**意味づけはサブエージェントに委ねる** |
 | 5. ネタバレ検査 | 「正解にしか現れない識別子」を主、正規化後の行一致を補助にする。**1語でも混入したらその finding を落とす** |
 | 6. 実例確認の題材 | 使い捨ての最小フィクスチャを実装時に作る。**投稿直前まで**を確認範囲とする案を提案（要合意） |
 
-**この調査で確かめられなかったこと**（詳細は各論点と末尾「未決定事項」）: GitLab経路の挙動、
-3000ファイル超・巨大ファイルでの `pulls/<n>/files` の挙動、実際の演習リポジトリでの動作。
+**この調査で確かめられなかったこと**（詳細は各論点と末尾「未決定事項」）:
+3000ファイル超・巨大ファイルでの `pulls/<n>/files` の挙動、GitLab側で差分が
+truncate/collapse される規模での挙動、実際の演習リポジトリでの動作。
+
+> **追記（flow-id 2-9・レビュー1周目）**: 当初「GitLab経路は `glab` が無いため未検証」としていたが、
+> ローカルにGitLab CE 18.5.4のdockerコンテナ（`localhost:8929`）と `glab` 1.114.0 があるとの
+> 指摘を受け、**実機で検証した**。結果は論点2「GitLab経路の実機確認」に記載し、
+> 未決定事項#1（GitLab対応の扱い）は解消した。
 
 ---
 
@@ -155,8 +161,14 @@ base側がその後進んでいても、受講者が書いていない変更が�
 ```bash
 get_mr_diff <MR番号>
 # → {"base":"main","head":"feature-...","headSha":"...",
-#    "files":[{"path":"...","status":"modified","additions":80,"deletions":76,"patch":"..."}]}
+#    "files":[{"path":"...","oldPath":"...","status":"modified",
+#              "additions":80,"deletions":76,"patch":"...","truncated":false}]}
 ```
+
+**この形は、GitHub（PR #2）とGitLab（`root/issue45-verify!3`）の実データから実際に組み立てて
+キー集合の一致を確認済み**（下記「GitLab経路の実機確認」）。`status` は
+`added`/`modified`/`removed`/`renamed` の4語彙に統一し、`truncated` は「差分本文を取得できな
+かった／切り捨てられた」ことを表す。
 
 - **返却はstdoutへのJSON1つ**（`Provider.sh` の全関数と同じ規約）。ただし**呼び出し側は
   必ずファイルへリダイレクトし、コマンド置換 `$(...)` で受けない**ことをSKILL.md側の規約として
@@ -170,17 +182,67 @@ get_mr_diff <MR番号>
 - 命名は既存の `get_mr_diff_url` / `get_mr_diff_since_url`（URLを組み立てるだけの関数）と
   紛らわしいため、**`get_mr_changed_files` 等への改名も検討する**（設計フェーズで決める）。
 
+### GitLab経路の実機確認（flow-id 2-9で追加）
+
+**環境**: ローカルのGitLab CE **18.5.4-ce.0**（dockerコンテナ `gitlab`、`http://localhost:8929`）、
+`glab` **1.114.0**（`root` として認証済み）。対象は既存の検証用MR
+`root/issue45-verify` の `!3`。`glab` はホスト指定に `--hostname` ではなく
+`GITLAB_HOST=http://localhost:8929` の環境変数を使う（`--hostname localhost:8929` は
+`Error parsing --hostname: invalid hostname.` で失敗した。ポート付きを受け付けない）。
+
+**2つのエンドポイントを比較した。**
+
+| | `GET …/merge_requests/:iid/changes`（旧） | `GET …/merge_requests/:iid/diffs`（新） |
+|---|---|---|
+| 返る形 | MRオブジェクト全体＋`changes[]` | **差分の配列のみ** |
+| ファイル単位のキー | `old_path` `new_path` `new_file` `deleted_file` `renamed_file` `diff` | 左記＋ **`too_large`** `collapsed` `generated_file` `a_mode` `b_mode` |
+| MRメタ情報 | `source_branch` `target_branch` `sha` `diff_refs`(base/head/start_sha) `changes_count` を**同じ応答に含む** | **含まない**（別途 `GET …/merge_requests/:iid` が要る） |
+| 切り捨ての表現 | トップレベルの **`overflow`**（今回は `false`） | **ファイル単位**の `too_large` / `collapsed` |
+| ページング | **無し**（`per_page` を付けてもページングヘッダが返らない） | **有り**（`X-Total: 1` `X-Page: 1` `X-Per-Page: 1` `X-Total-Pages: 1` を確認） |
+
+**採用: `/diffs` ＋ `GET …/merge_requests/:iid`（2回）。** 理由は、(a) 切り捨てを**ファイル単位**で
+把握できる（`overflow` だとどのファイルが欠けたか分からない）、(b) ページングがあるため大きなMRでも
+全件取れる、(c) `/changes` は公式に非推奨とされている。**ただし今回のGitLab 18.5.4-ce.0 では、
+`/changes` のレスポンスヘッダに非推奨・Sunsetの告知は返らなかった**（`glab api -i` で確認。
+`HTTP/1.1 200 OK` のみ）ので、非推奨であること自体はこの実機確認では裏取りできていない。
+
+**共通形への正規化が両プロバイダで成立することを確認した。** 論点2で提案した返却JSONの形を、
+GitHub（PR #2）とGitLab（`root/issue45-verify!3`）の実データからそれぞれ組み立て、キー集合が
+一致することを確かめた。
+
+```bash
+$ jq -r 'keys|join(",")' gh-normalized.json ; jq -r 'keys|join(",")' gl-normalized.json
+base,files,head,headSha
+base,files,head,headSha
+$ jq -r '.files[0]|keys|join(",")' gh-normalized.json ; jq -r '.files[0]|keys|join(",")' gl-normalized.json
+additions,deletions,oldPath,patch,path,status,truncated
+additions,deletions,oldPath,patch,path,status,truncated
+```
+
+**プロバイダ間で埋める必要がある差は2つだけだった。**
+
+1. **`status`**。GitHubは `added`/`modified`/`removed`/`renamed` を直接返す。GitLabは真偽値
+   （`new_file` / `deleted_file` / `renamed_file`）なので、この順で判定して同じ語彙へ変換する。
+2. **`additions` / `deletions`**。**GitLabはファイル単位の増減行数を返さない**（キー自体が無い）。
+   `diff` 本文の行頭 `+` / `-`（`+++` / `---` を除く）を数えて算出する。実データで検算した:
+   `sample.txt` は算出値 `+2/-2` で、`glab mr diff` の出力（`+line02-modified` `+line11-added` /
+   `-line02` `-line04`）と一致した。
+
+**`glab mr diff` は使わない。** 出力が `--- path` / `+++ path` から始まる形で、
+`diff --git` ヘッダを持たない独自形式だった（15行）。API経由の構造化データのほうが扱いやすい。
+
 ### 確かめられなかったこと・制約
 
-- **`patch` が省略されるケース**。GitHubは巨大ファイル・バイナリで `patch` キーを返さない。
-  今回のPRは4ファイルすべてで `patch` が存在したため**未確認**。実装では
-  「差分を読めなかったファイル」として名前と `status` だけをサブエージェントへ渡す扱いにする。
-- **3000ファイル上限**。`pulls/<n>/files` は1PRあたり最大3000ファイルまでしか返さない。
+- **`patch` が省略されるケース**（GitHub）。巨大ファイル・バイナリで `patch` キーが返らない。
+  今回のPRは全ファイルで `patch` が存在したため**未確認**。実装では「差分を読めなかったファイル」
+  として名前と `status` だけをサブエージェントへ渡す扱いにする。
+- **3000ファイル上限**（GitHub）。`pulls/<n>/files` は1PRあたり最大3000ファイルまで。
   演習規模では到達しない見込みだが、**到達したことを検知して報告する**（無言で切り捨てない）。
-- **GitLab経路は未検証**。`glab` が実行環境に存在しないため、コマンド・レスポンスを実機で
-  確認できていない。API `GET /projects/:id/merge_requests/:iid/changes` の `changes[]` が
-  `old_path` / `new_path` / `diff` / `new_file` / `deleted_file` / `renamed_file` を返す形と
-  理解しているが、**この理解は実機で裏取りしていない**。実装方針は末尾「未決定事項」を参照。
+- **GitLab側で `too_large` / `collapsed` が真になる規模**は未確認（今回のMRは1ファイル129バイト）。
+  正規化の `truncated` は **`too_large` と `collapsed` の論理和**で立てる（片方だけを見ると、
+  折りたたまれて `diff` が空のファイルを「差分なし」と誤って扱う）。
+- **リネームされたファイル**の挙動は両プロバイダとも未確認（今回のMRに改名が含まれない）。
+  GitHubは `previous_filename`、GitLabは `old_path` を旧パスとして使う想定。
 
 ---
 
@@ -399,7 +461,7 @@ PR #2 を「受講者のMR」に見立てることは可能だが、**それに�
 
 | # | 論点 | 内容 |
 |---|---|---|
-| 1 | 2 | **GitLab対応の扱い**。`glab` が無く実機確認できない。(a) 未検証と明記して実装する / (b) MCPフォールバック節と同様に対象外と明示する、のいずれか |
+| ~~1~~ | 2 | ~~**GitLab対応の扱い**~~ → **解消**（flow-id 2-9）。ローカルのGitLab CE 18.5.4 と `glab` 1.114.0 で実機検証できたため、**GitLabも対象に含めて実装する**。エンドポイントは `/diffs` ＋ MRメタ情報の2回 |
 | 2 | 2 | `get_mr_diff` の返却をstdoutにするか、出力ファイルパスを引数で受けるか（既存規約 対 サイズの実務） |
 | 3 | 2 | 関数名（`get_mr_diff` は既存の `get_mr_diff_url` と紛らわしい） |
 | 4 | 3 | 正解ソースの後始末を、呼び出し側の手順に委ねるか、スクリプトの `--cleanup` サブコマンドにするか |

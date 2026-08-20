@@ -49,8 +49,9 @@
         </div>
         <p class="text-sm leading-relaxed text-slate-700">
           <code class="bg-slate-100 px-1 rounded">gh api …/pulls/&lt;n&gt;/files</code> を採る
-          （<code class="bg-slate-100 px-1 rounded">gh pr diff</code> ではない）。返却は
-          <code class="bg-slate-100 px-1 rounded">{base, head, files:[{path,status,patch}]}</code>。
+          （<code class="bg-slate-100 px-1 rounded">gh pr diff</code> ではない）。
+          <strong>GitLabは <code class="bg-slate-100 px-1 rounded">/diffs</code> ＋ MRメタ情報の2回</strong>で
+          同じ形へ正規化できることを実機で確認した。
         </p>
       </div>
 
@@ -203,12 +204,48 @@ fatal: repository 'plaindir' does not exist</pre>
       </div>
     </div>
 
+    <div class="mt-4 card bg-white rounded-lg border border-emerald-300 p-5">
+      <div class="flex items-baseline gap-2 mb-3">
+        <span class="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">flow-id 2-9 で追加</span>
+        <h3 class="font-bold">GitLab経路（ローカル GitLab CE 18.5.4 ／ glab 1.114.0）</h3>
+      </div>
+      <p class="text-sm text-slate-700 leading-relaxed mb-3">
+        当初「<code class="bg-slate-100 px-1 rounded">glab</code> が無いため未検証」としていたが、
+        dockerコンテナ（<code class="bg-slate-100 px-1 rounded">localhost:8929</code>）で稼働しているとの指摘を受け、
+        既存の検証用MR <code class="bg-slate-100 px-1 rounded">root/issue45-verify!3</code> に対して実機検証した。
+      </p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm min-w-[640px]">
+          <thead class="bg-slate-100 text-slate-600">
+            <tr><th class="text-left px-3 py-2"></th><th class="text-left px-3 py-2">/changes（旧）</th><th class="text-left px-3 py-2">/diffs（新・採用）</th></tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200">
+            <tr><td class="px-3 py-2 font-semibold">MRメタ情報</td><td class="px-3 py-2">同じ応答に含む</td><td class="px-3 py-2 text-rose-700">含まない（別途1回）</td></tr>
+            <tr><td class="px-3 py-2 font-semibold">切り捨ての表現</td><td class="px-3 py-2"><code>overflow</code>（MR全体）</td><td class="px-3 py-2 text-emerald-700"><code>too_large</code>/<code>collapsed</code>（ファイル単位）</td></tr>
+            <tr><td class="px-3 py-2 font-semibold">ページング</td><td class="px-3 py-2 text-rose-700">無し</td><td class="px-3 py-2 text-emerald-700">有り（X-Total 等を確認）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="text-sm text-slate-700 leading-relaxed mt-3">
+        <strong>共通形への正規化が両プロバイダで成立することを確認した。</strong>
+        GitHub（PR #2）とGitLab（!3）の実データから同じJSONを組み立て、キー集合
+        <code class="bg-slate-100 px-1 rounded text-xs">base,files,head,headSha</code> ／
+        <code class="bg-slate-100 px-1 rounded text-xs">additions,deletions,oldPath,patch,path,status,truncated</code>
+        が一致した。埋める必要がある差は<strong>2つだけ</strong>——
+        <code class="bg-slate-100 px-1 rounded">status</code>（GitLabは真偽値3つから変換）と、
+        <strong>GitLabが返さない <code class="bg-slate-100 px-1 rounded">additions</code>/<code class="bg-slate-100 px-1 rounded">deletions</code></strong>
+        （diff本文の行頭を数えて算出。実データで <code>+2/-2</code> を検算済み）。
+      </p>
+    </div>
+
     <div class="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-5">
       <h3 class="font-bold text-amber-900 mb-2">確かめられなかったこと（結論の前提に含めない）</h3>
       <ul class="text-sm text-amber-900 space-y-1 list-disc list-inside leading-relaxed">
-        <li><strong>GitLab経路</strong>。<code class="bg-amber-100 px-1 rounded">glab</code> が実行環境に無く、コマンド・レスポンスを実機確認できていない。APIの形についての理解も裏取りしていない</li>
-        <li><strong>巨大ファイル・バイナリで <code class="bg-amber-100 px-1 rounded">patch</code> が省略されるケース</strong>。今回の4ファイルはすべて patch を持っていた</li>
-        <li><strong>3000ファイル上限</strong>への到達時の挙動</li>
+        <li><strong>巨大ファイル・バイナリで <code class="bg-amber-100 px-1 rounded">patch</code> が省略されるケース</strong>（GitHub）。今回のファイルはすべて patch を持っていた</li>
+        <li><strong>3000ファイル上限</strong>（GitHub）への到達時の挙動</li>
+        <li><strong>GitLabで <code class="bg-amber-100 px-1 rounded">too_large</code>/<code class="bg-amber-100 px-1 rounded">collapsed</code> が真になる規模</strong>（今回のMRは1ファイル129バイト）</li>
+        <li><strong>リネームされたファイル</strong>の挙動（両プロバイダとも、今回のMRに改名が無い）</li>
+        <li><strong><code class="bg-amber-100 px-1 rounded">/changes</code> が非推奨であること自体</strong>。18.5.4-ce.0 はレスポンスヘッダに告知を返さなかった</li>
         <li><strong>実際の演習リポジトリ</strong>での動作（題材が未整備。論点6）</li>
       </ul>
     </div>
@@ -300,7 +337,7 @@ fatal: repository 'plaindir' does not exist</pre>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-200">
-          <tr><td class="px-4 py-2">1</td><td class="px-4 py-2">2</td><td class="px-4 py-2"><strong>GitLab対応の扱い</strong>。未検証と明記して実装するか、対象外と明示するか</td></tr>
+          <tr class="bg-emerald-50"><td class="px-4 py-2 line-through text-slate-400">1</td><td class="px-4 py-2">2</td><td class="px-4 py-2"><s class="text-slate-400">GitLab対応の扱い</s> → <strong class="text-emerald-700">解消（flow-id 2-9）</strong>。実機検証できたため <strong>GitLabも対象に含めて実装する</strong>（<code class="bg-emerald-100 px-1 rounded">/diffs</code> ＋ MRメタ情報の2回）</td></tr>
           <tr><td class="px-4 py-2">2</td><td class="px-4 py-2">2</td><td class="px-4 py-2">diff関数の返却を stdout にするか、出力ファイルパスを引数で受けるか</td></tr>
           <tr><td class="px-4 py-2">3</td><td class="px-4 py-2">2</td><td class="px-4 py-2">関数名（<code class="bg-slate-100 px-1 rounded">get_mr_diff</code> は既存の <code class="bg-slate-100 px-1 rounded">get_mr_diff_url</code> と紛らわしい）</td></tr>
           <tr><td class="px-4 py-2">4</td><td class="px-4 py-2">3</td><td class="px-4 py-2">正解ソースの後始末を呼び出し側に委ねるか、<code class="bg-slate-100 px-1 rounded">--cleanup</code> サブコマンドにするか</td></tr>
