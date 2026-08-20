@@ -349,6 +349,7 @@ mcp_tool_hint() {
     add_mr_comment) printf 'mcp__github__add_issue_comment (owner, repo, issue_number=PR番号, body=ファイル内容)\n' ;;
     add_mr_inline_comments) printf 'mcp__github__pull_request_review_write (method="create" → 各指摘を "add_comment_to_pending_review" → "submit_pending"。owner, repo, pullNumber, path, line, side, body)\n' ;;
     add_issue_comment) printf 'mcp__github__add_issue_comment (owner, repo, issue_number=通知先issue番号, body=ファイル内容)\n' ;;
+    get_mr_changed_files) printf 'mcp__github__pull_request_read (method="get_files" で変更ファイル、method="get" で base/head/headSha。owner, repo, pullNumber)\n' ;;
     *) printf '対応するMCPツールは .claude/skills/issue-mr-flow/SKILL.md の対応表を参照\n' ;;
   esac
 }
@@ -784,9 +785,15 @@ get_branch_work_files() {
 # インラインで示せなかった指摘の配列（標準入力）から、レビュー本文（サマリ）を組み立てる
 # 純粋関数。プロバイダに依存しないため Provider.sh 側に置く。
 # 指摘が0件でも本文は空にしない（GitHubのレビューは本文が空だと意味を成さないため）。
+#
+# 第1引数は**レビューの種類を表すラベル**（省略時は「敵対的レビュー」。issue #1）。
+# 投稿経路を `answer-talker`（演習MRの正解照合レビュー）と共有するため、本文に埋め込む名前を
+# 呼び出し側から差し替えられるようにした。**省略時の既定は従来の文言のままで、既存の呼び出しは
+# 変更していない。**
 format_findings_summary() {
-  jq -r '
-    "Claude Codeより: 敵対的レビュー（AIによる自動レビュー）の結果です。\n"
+  local label="${1:-敵対的レビュー}"
+  jq -r --arg reviewLabel "$label" '
+    "Claude Codeより: " + $reviewLabel + "（AIによる自動レビュー）の結果です。\n"
     + (
         if (length == 0) then
           "\nすべての指摘をインラインコメントで示しています。"
@@ -808,11 +815,104 @@ format_findings_summary() {
 # findings JSONファイルの指摘を、MRへインラインコメントとして投稿する。
 # findingsは必ずファイル経由で渡す（jqの引数長上限と、コマンド文字列へのhook誤検知語の
 # 混入を避けるため。.claude/rules/shell-script-style.md）。
+# 第3引数は**レビューの種類を表すラベル**（省略時は「敵対的レビュー」。issue #1）。
+# `answer-talker`（演習MRの正解照合レビュー）が同じ投稿経路を使うため、本文へ埋め込む名前を
+# 差し替えられるようにした。**既定は従来の文言のままで、`adversarial-review` 側の呼び出しは
+# 変更していない。**
 add_mr_inline_comments() {
   require_vcs_cli add_mr_inline_comments || return 1
-  local mr_number="$1" findings_file="$2"
+  local mr_number="$1" findings_file="$2" label="${3:-敵対的レビュー}"
   case "$(get_provider)" in
-    github) github_add_mr_inline_comments "$mr_number" "$findings_file" ;;
-    gitlab) gitlab_add_mr_inline_comments "$mr_number" "$findings_file" ;;
+    github) github_add_mr_inline_comments "$mr_number" "$findings_file" "$label" ;;
+    gitlab) gitlab_add_mr_inline_comments "$mr_number" "$findings_file" "$label" ;;
+  esac
+}
+
+# --- answer-talker: 対象リポジトリの切り替えとMR番号起点の差分取得（issue #1） ---
+
+# 以降のProvider関数の対象リポジトリを、**カレントディレクトリ以外**へ切り替える。
+#
+# `gh` / `glab` は対象リポジトリをcwdのgitリモートから解決するため、MR番号だけでは
+# 「どのリポジトリのMRか」が決まらない（実機で確認）。`answer-talker` は別リポジトリ
+# （受講者）のMRを扱うので、この切り替えが要る。
+#
+# 環境変数（`GH_REPO` / `GITLAB_REPO`）で上書きする方式を採ることで、**既存のProvider関数を
+# 1つも変更せずに**別リポジトリを対象にできる（引数を足す方式だと `adversarial-review` の
+# 呼び出しまで波及する）。
+#
+# **プロセス内の状態（グローバル変数と環境変数）を変える関数である。** 1回の実行で1つのMRしか
+# 扱わない前提のため、解除・切り戻しは用意しない。
+#
+# 引数はURL（`https://host/group/project` / `git@host:group/project.git`）でもスラッグ
+# （`owner/repo`）でもよい。URLならプロバイダとホストもそこから決まり、スラッグならプロバイダは
+# cwdのリモートから判定する。
+#
+# 出力: {"provider":"github|gitlab","path":"owner/repo","host":"..."} をstdoutへ。
+use_target_repo() {
+  local target="${1:-}" provider path host="" port="" scheme=""
+  if [ -z "$target" ]; then
+    printf 'use_target_repo: 対象リポジトリが空です\n' >&2
+    return 1
+  fi
+
+  if [ "$target" != "${target#*://}" ] || [ "$target" != "${target#git@}" ]; then
+    split_remote_url "$target"
+    host="$REPLY_HOST"
+    port="$REPLY_PORT"
+    scheme="$REPLY_SCHEME"
+    path="$REPLY_PATH"
+    provider="$(provider_from_remote_url "$target")" || return 1
+  else
+    path="$target"
+    provider="$(get_provider)"
+  fi
+
+  if [ -z "$path" ] || [ "$path" = "${path#*/}" ]; then
+    printf 'use_target_repo: 対象から owner/repo を取り出せませんでした: %s\n' "$target" >&2
+    return 1
+  fi
+
+  _PROVIDER_CACHE="$provider"
+  case "$provider" in
+    github)
+      export GH_REPO="$path"
+      ;;
+    gitlab)
+      export GITLAB_REPO="$path"
+      if [ -n "$host" ]; then
+        local base
+        if [ "$scheme" = "http" ]; then base="http://$host"; else base="https://$host"; fi
+        [ -n "$port" ] && base="${base}:${port}"
+        # `glab --hostname` はポート付きホストを受け付けない（`invalid hostname` で失敗する）。
+        # 環境変数なら self-hosted + ポートの構成でも通る。
+        export GITLAB_HOST="$base"
+      fi
+      ;;
+  esac
+
+  jq -nc --arg provider "$provider" --arg path "$path" --arg host "$host" \
+    '{provider: $provider, path: $path, host: $host}'
+}
+
+# MR/PR番号から、変更ファイルの一覧と差分本文を取得する（issue #1）。
+#
+# 既存の `get_mr_diff_url` / `get_mr_diff_since_url` は**URLを組み立てるだけ**の関数なので、
+# 名前を `get_mr_diff` にすると「似た名前で中身が違う3兄弟」になる。実体（GitHubの
+# `pulls/<n>/files` / GitLabの `/diffs`）に合わせて `changed_files` とした。
+#
+# **呼び出し側は必ずファイルへリダイレクトし、コマンド置換 `$(...)` で受けないこと。**
+# 差分のサイズは対象MRの規模に比例して無制限に大きくなり、Windowsのコマンドライン長上限
+# （実測で約32KB）に容易に達する（.claude/rules/shell-script-style.md）。
+#
+#   get_mr_changed_files 42 > "$tmpdir/diff.json"     # 良い例
+#   diff="$(get_mr_changed_files 42)"                 # 悪い例
+#
+# 対象リポジトリがcwd以外の場合は、先に `use_target_repo` を呼ぶこと。
+get_mr_changed_files() {
+  require_vcs_cli get_mr_changed_files || return 1
+  local mr_number="$1"
+  case "$(get_provider)" in
+    github) github_get_mr_changed_files "$mr_number" ;;
+    gitlab) gitlab_get_mr_changed_files "$mr_number" ;;
   esac
 }
