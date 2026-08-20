@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>answer-talker スキルの設計調査 結果</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-feature-settings: "palt"; }
+  .card { break-inside: avoid; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+<div class="max-w-6xl mx-auto px-5 py-10">
+
+  <header class="mb-10">
+    <p class="text-xs tracking-widest text-slate-500 mb-2">ISSUE #1 ／ PR #2 ／ flow-id 2-6</p>
+    <h1 class="text-3xl font-bold text-slate-900">answer-talker スキルの設計調査 結果</h1>
+    <p class="mt-3 text-slate-600 leading-relaxed">
+      演習MRを正解ソースと照合し、<strong>正解を転記せずに概念的な指摘だけを返す</strong>
+      スキルを設計するための調査。6論点について結論・根拠・設計への反映を整理した。
+      本ページは <code class="bg-slate-200 px-1 rounded text-sm">reports/20260820_bubbly-exploring-biscuit_answer-talker設計調査.md</code>
+      の視覚化であり、<strong>正文はmd側</strong>。
+    </p>
+    <p class="mt-2 text-sm text-slate-500">実施: 2026-08-20 ／ 個別調査計画: <code>plans/【調査】answer-talkerスキルの設計調査.md</code></p>
+  </header>
+
+  <!-- 結論サマリ -->
+  <section class="mb-12">
+    <h2 class="text-xl font-bold text-slate-900 border-l-4 border-indigo-500 pl-3 mb-4">結論の要約</h2>
+    <div class="grid gap-4 md:grid-cols-2">
+
+      <div class="card bg-white rounded-lg border border-slate-200 p-5">
+        <div class="flex items-baseline gap-2 mb-2">
+          <span class="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">論点 1</span>
+          <h3 class="font-bold">adversarial-review からの再利用</h3>
+        </div>
+        <p class="text-sm leading-relaxed text-slate-700">
+          findings JSONスキーマ・承認モデル・選別表・投稿関数は<strong>そのまま再利用</strong>。
+          観点の出どころと入力（正解ソース）が固有。
+          <strong class="text-rose-700">実施回数の上限機構は課さない。</strong>
+        </p>
+      </div>
+
+      <div class="card bg-white rounded-lg border border-slate-200 p-5">
+        <div class="flex items-baseline gap-2 mb-2">
+          <span class="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">論点 2</span>
+          <h3 class="font-bold">MR番号起点のdiff取得</h3>
+        </div>
+        <p class="text-sm leading-relaxed text-slate-700">
+          <code class="bg-slate-100 px-1 rounded">gh api …/pulls/&lt;n&gt;/files</code> を採る
+          （<code class="bg-slate-100 px-1 rounded">gh pr diff</code> ではない）。返却は
+          <code class="bg-slate-100 px-1 rounded">{base, head, files:[{path,status,patch}]}</code>。
+        </p>
+      </div>
+
+      <div class="card bg-white rounded-lg border border-slate-200 p-5">
+        <div class="flex items-baseline gap-2 mb-2">
+          <span class="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">論点 3</span>
+          <h3 class="font-bold">正解ソースの取得</h3>
+        </div>
+        <p class="text-sm leading-relaxed text-slate-700">
+          <strong>ローカルパスはcloneせず読み取り専用でそのまま使う</strong>
+          （<code class="bg-slate-100 px-1 rounded">--depth</code> が効かないことを実機で確認）。
+          URLのみ shallow clone し <code class="bg-slate-100 px-1 rounded">trap</code> で後始末。
+        </p>
+      </div>
+
+      <div class="card bg-white rounded-lg border border-slate-200 p-5">
+        <div class="flex items-baseline gap-2 mb-2">
+          <span class="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">論点 4</span>
+          <h3 class="font-bold">ファイル対応付け</h3>
+        </div>
+        <p class="text-sm leading-relaxed text-slate-700">
+          機械的に決めるのは「同一パス」「ファイル名一致」まで。対応が付かない要素の
+          <strong>意味づけはサブエージェントに委ねる</strong>（別解を潰さないため）。
+        </p>
+      </div>
+
+      <div class="card bg-white rounded-lg border border-slate-200 p-5">
+        <div class="flex items-baseline gap-2 mb-2">
+          <span class="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">論点 5</span>
+          <h3 class="font-bold">ネタバレ検査</h3>
+        </div>
+        <p class="text-sm leading-relaxed text-slate-700">
+          「正解にしか現れない識別子」を主、正規化後の行一致を補助に。
+          <strong class="text-rose-700">1語でも混入したらその finding を落とす</strong>
+          （損失が非対称なため厳しい側へ倒す）。
+        </p>
+      </div>
+
+      <div class="card bg-white rounded-lg border border-slate-200 p-5">
+        <div class="flex items-baseline gap-2 mb-2">
+          <span class="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">論点 6</span>
+          <h3 class="font-bold">実例確認の題材</h3>
+        </div>
+        <p class="text-sm leading-relaxed text-slate-700">
+          使い捨ての最小フィクスチャを実装時に作る。
+          <strong>投稿直前まで</strong>を確認範囲とする案を提案（<span class="text-amber-700">要合意</span>）。
+        </p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 処理の流れ -->
+  <section class="mb-12">
+    <h2 class="text-xl font-bold text-slate-900 border-l-4 border-indigo-500 pl-3 mb-4">スキルの処理の流れと、各段が依拠する論点</h2>
+    <div class="bg-white rounded-lg border border-slate-200 p-6 overflow-x-auto">
+      <div class="flex items-stretch gap-2 min-w-[880px]">
+
+        <div class="flex-1 rounded-md border border-slate-300 bg-slate-50 p-3">
+          <p class="text-[10px] font-bold text-slate-500 mb-1">論点 3</p>
+          <p class="text-sm font-bold mb-1">正解ソースの取得</p>
+          <p class="text-xs text-slate-600 leading-snug">URL→shallow clone／ローカル→そのまま</p>
+        </div>
+        <div class="self-center text-slate-400 text-xl">→</div>
+
+        <div class="flex-1 rounded-md border border-slate-300 bg-slate-50 p-3">
+          <p class="text-[10px] font-bold text-slate-500 mb-1">論点 2</p>
+          <p class="text-sm font-bold mb-1">MRのdiff取得</p>
+          <p class="text-xs text-slate-600 leading-snug">MR番号 → path/status/patch</p>
+        </div>
+        <div class="self-center text-slate-400 text-xl">→</div>
+
+        <div class="flex-1 rounded-md border border-slate-300 bg-slate-50 p-3">
+          <p class="text-[10px] font-bold text-slate-500 mb-1">論点 4</p>
+          <p class="text-sm font-bold mb-1">対応付け</p>
+          <p class="text-xs text-slate-600 leading-snug">matched／referenceOnly／submissionOnly</p>
+        </div>
+        <div class="self-center text-slate-400 text-xl">→</div>
+
+        <div class="flex-1 rounded-md border border-indigo-300 bg-indigo-50 p-3">
+          <p class="text-[10px] font-bold text-indigo-600 mb-1">論点 1・4</p>
+          <p class="text-sm font-bold mb-1">サブエージェント</p>
+          <p class="text-xs text-slate-600 leading-snug">正解を読んで findings を返す</p>
+        </div>
+        <div class="self-center text-slate-400 text-xl">→</div>
+
+        <div class="flex-1 rounded-md border border-rose-300 bg-rose-50 p-3">
+          <p class="text-[10px] font-bold text-rose-600 mb-1">論点 5</p>
+          <p class="text-sm font-bold mb-1">ネタバレ検査</p>
+          <p class="text-xs text-slate-600 leading-snug">混入した finding を落とす</p>
+        </div>
+        <div class="self-center text-slate-400 text-xl">→</div>
+
+        <div class="flex-1 rounded-md border border-slate-300 bg-slate-50 p-3">
+          <p class="text-[10px] font-bold text-slate-500 mb-1">論点 1</p>
+          <p class="text-sm font-bold mb-1">承認 → 投稿</p>
+          <p class="text-xs text-slate-600 leading-snug">既存 add_mr_inline_comments</p>
+        </div>
+
+      </div>
+      <p class="mt-4 text-sm text-slate-600 leading-relaxed">
+        サブエージェントが正解を読める構造そのものが、ネタバレの源泉である。だから
+        <strong>投稿の直前に機械的検査を置く</strong>必要がある——issueが求める二重化は、
+        この処理の並びから必然的に導かれる。
+      </p>
+    </div>
+  </section>
+
+  <!-- 実機確認 -->
+  <section class="mb-12">
+    <h2 class="text-xl font-bold text-slate-900 border-l-4 border-emerald-500 pl-3 mb-4">実機で確認したこと</h2>
+
+    <div class="grid gap-4 lg:grid-cols-2">
+      <div class="card bg-white rounded-lg border border-slate-200 p-5">
+        <h3 class="font-bold mb-3">論点2: GitHub経路（PR #2 に対して実行）</h3>
+        <pre class="bg-slate-900 text-slate-100 text-xs rounded p-3 overflow-x-auto leading-relaxed">$ gh api "repos/{owner}/{repo}/pulls/2/files" --paginate \
+    | jq -r '.[0] | keys | join(", ")'
+additions, blob_url, changes, contents_url, deletions,
+filename, patch, raw_url, sha, status
+
+$ gh pr view 2 --json headRefName,baseRefName,headRefOid
+{"baseRefName":"main",
+ "headRefName":"feature-1-add-answer-talker-review-skill",
+ "headRefOid":"1aa1c3a8…"}</pre>
+        <ul class="mt-3 text-sm text-slate-700 space-y-1 list-disc list-inside">
+          <li>日本語を含むパスがエスケープされずそのまま返る</li>
+          <li><code class="bg-slate-100 px-1 rounded">status</code>（added/modified/removed）が取れる</li>
+          <li>PR #2（4ファイル）の patch 合計は <strong>約21.9KB</strong></li>
+        </ul>
+      </div>
+
+      <div class="card bg-white rounded-lg border border-slate-200 p-5">
+        <h3 class="font-bold mb-3">論点3: clone の挙動</h3>
+        <pre class="bg-slate-900 text-slate-100 text-xs rounded p-3 overflow-x-auto leading-relaxed">$ git clone --depth 1 "c:/…/ans-talker" local-clone
+warning: --depth is ignored in local clones;
+         use file:// instead.
+$ git -C local-clone rev-list --count HEAD
+4                # ← 浅くなっていない
+
+$ git clone --depth 1 --single-branch &lt;URL&gt; url-clone
+$ git -C url-clone rev-list --count HEAD
+1                # ← 1コミットのみ（.git は 744K）
+
+$ git clone --depth 1 plaindir plain-clone
+fatal: repository 'plaindir' does not exist</pre>
+        <ul class="mt-3 text-sm text-slate-700 space-y-1 list-disc list-inside">
+          <li><strong>局所cloneでは <code class="bg-slate-100 px-1 rounded">--depth</code> が無視される</strong></li>
+          <li>gitリポジトリでないディレクトリは clone できない＝正解が素のディレクトリでも受け付けるには clone しない設計が要る</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-5">
+      <h3 class="font-bold text-amber-900 mb-2">確かめられなかったこと（結論の前提に含めない）</h3>
+      <ul class="text-sm text-amber-900 space-y-1 list-disc list-inside leading-relaxed">
+        <li><strong>GitLab経路</strong>。<code class="bg-amber-100 px-1 rounded">glab</code> が実行環境に無く、コマンド・レスポンスを実機確認できていない。APIの形についての理解も裏取りしていない</li>
+        <li><strong>巨大ファイル・バイナリで <code class="bg-amber-100 px-1 rounded">patch</code> が省略されるケース</strong>。今回の4ファイルはすべて patch を持っていた</li>
+        <li><strong>3000ファイル上限</strong>への到達時の挙動</li>
+        <li><strong>実際の演習リポジトリ</strong>での動作（題材が未整備。論点6）</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 落とし穴 -->
+  <section class="mb-12">
+    <h2 class="text-xl font-bold text-slate-900 border-l-4 border-rose-500 pl-3 mb-4">実装前に分かっている落とし穴</h2>
+    <div class="bg-white rounded-lg border border-slate-200 divide-y divide-slate-200">
+
+      <div class="p-5">
+        <h3 class="font-bold text-sm mb-1">cloneの失敗をパイプで潰さない</h3>
+        <p class="text-sm text-slate-700 leading-relaxed">
+          検証中、<code class="bg-slate-100 px-1 rounded">git clone … 2&gt;&amp;1 | tail -3</code> と書いたところ
+          cloneが <code class="bg-slate-100 px-1 rounded">fatal:</code> で失敗しているのに
+          <code class="bg-slate-100 px-1 rounded">$?</code> が <strong>0</strong> になった（パイプの終了コードは tail のもの）。
+        </p>
+      </div>
+
+      <div class="p-5">
+        <h3 class="font-bold text-sm mb-1">既存の一時ディレクトリ後始末を踏襲しない</h3>
+        <p class="text-sm text-slate-700 leading-relaxed">
+          <code class="bg-slate-100 px-1 rounded">github_add_mr_inline_comments</code>（Github.sh:334）は
+          末尾の <code class="bg-slate-100 px-1 rounded">rm -rf</code> だけで、途中失敗時に一時ディレクトリが残る。
+          新規スクリプトは <code class="bg-slate-100 px-1 rounded">trap … EXIT INT TERM</code>（extract-frontmatter.sh:317）に倣う。
+          <strong>ローカルパス指定時は消してはいけない</strong>ため、返却JSONに <code class="bg-slate-100 px-1 rounded">cleanup</code> フラグを持たせる。
+        </p>
+      </div>
+
+      <div class="p-5">
+        <h3 class="font-bold text-sm mb-1">大きなdiffをコマンド置換で受けない</h3>
+        <p class="text-sm text-slate-700 leading-relaxed">
+          diffのサイズは受講者の実装規模に比例して無制限に大きくなる。Windowsのコマンドライン長上限
+          （実測 約32KB）に容易に達するため、<strong>必ずファイルへリダイレクトする</strong>ことを
+          SKILL.md 側の規約として明記する。
+        </p>
+      </div>
+
+      <div class="p-5">
+        <h3 class="font-bold text-sm mb-1">パス一致だけの対応付けは、最も指摘したいケースで失敗する</h3>
+        <p class="text-sm text-slate-700 leading-relaxed">
+          受講者が1ファイルに詰め込んでいる場合、正解側の3ファイルはどれもパス一致しない。
+          <strong>「分割単位が違う」こと自体が指摘対象</strong>なので、パス一致に依存した設計はここでちょうど機能しなくなる。
+        </p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ネタバレ検査の詳細 -->
+  <section class="mb-12">
+    <h2 class="text-xl font-bold text-slate-900 border-l-4 border-rose-500 pl-3 mb-4">ネタバレ検査: 誤検知と見逃し</h2>
+    <div class="grid gap-4 md:grid-cols-2">
+      <div class="card bg-white rounded-lg border border-slate-200 p-5">
+        <h3 class="font-bold mb-3 text-sm">誤検知しやすい（＝除外が要る）</h3>
+        <ol class="text-sm text-slate-700 space-y-2 list-decimal list-inside leading-relaxed">
+          <li><code class="bg-slate-100 px-1 rounded">if err != nil {</code> / <code class="bg-slate-100 px-1 rounded">return nil, err</code> — 定型。正解にもあるが何もネタバレしない</li>
+          <li><code class="bg-slate-100 px-1 rounded">func main() {</code> / <code class="bg-slate-100 px-1 rounded">package main</code> — 言語の構文</li>
+          <li><strong>一般語</strong>（repository / handler / service / config）— 設計原則を説明する言葉として指摘に必要</li>
+        </ol>
+        <p class="mt-3 text-xs text-slate-600 leading-relaxed">
+          → 抽出時に「受講者側diffにも現れる語」「一般的な英単語・キーワード」「短すぎる語」を除外しないと、検査が指摘をほぼ全滅させる。
+        </p>
+      </div>
+      <div class="card bg-white rounded-lg border border-slate-200 p-5">
+        <h3 class="font-bold mb-3 text-sm">見逃しやすい</h3>
+        <ol class="text-sm text-slate-700 space-y-2 list-decimal list-inside leading-relaxed">
+          <li><strong>変数名だけ変えた転記</strong>（userRepository → repo）</li>
+          <li><strong>空白・改行を変えた転記</strong> → 正規化を補助に置く理由</li>
+          <li><strong>構造そのものの転記</strong>（「XをA/B/Cの3つに分け、AがBを呼ぶ」）— コード片ではないがネタバレそのもの。<span class="text-rose-700 font-bold">機械検査では原理的に捕まえられない</span></li>
+        </ol>
+        <p class="mt-3 text-xs text-slate-600 leading-relaxed">
+          → 3番目があるため、サブエージェント側の規約は検査で代替できない。<strong>二重化は必然</strong>。
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 未決定事項 -->
+  <section class="mb-12">
+    <h2 class="text-xl font-bold text-slate-900 border-l-4 border-amber-500 pl-3 mb-4">未決定事項（設計フェーズで決める）</h2>
+    <div class="bg-white rounded-lg border border-slate-200 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600">
+          <tr>
+            <th class="text-left px-4 py-2 font-semibold">#</th>
+            <th class="text-left px-4 py-2 font-semibold">論点</th>
+            <th class="text-left px-4 py-2 font-semibold">内容</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200">
+          <tr><td class="px-4 py-2">1</td><td class="px-4 py-2">2</td><td class="px-4 py-2"><strong>GitLab対応の扱い</strong>。未検証と明記して実装するか、対象外と明示するか</td></tr>
+          <tr><td class="px-4 py-2">2</td><td class="px-4 py-2">2</td><td class="px-4 py-2">diff関数の返却を stdout にするか、出力ファイルパスを引数で受けるか</td></tr>
+          <tr><td class="px-4 py-2">3</td><td class="px-4 py-2">2</td><td class="px-4 py-2">関数名（<code class="bg-slate-100 px-1 rounded">get_mr_diff</code> は既存の <code class="bg-slate-100 px-1 rounded">get_mr_diff_url</code> と紛らわしい）</td></tr>
+          <tr><td class="px-4 py-2">4</td><td class="px-4 py-2">3</td><td class="px-4 py-2">正解ソースの後始末を呼び出し側に委ねるか、<code class="bg-slate-100 px-1 rounded">--cleanup</code> サブコマンドにするか</td></tr>
+          <tr><td class="px-4 py-2">5</td><td class="px-4 py-2">5</td><td class="px-4 py-2">「一般語・言語キーワード」の除外リストをどこに持つか</td></tr>
+          <tr><td class="px-4 py-2">6</td><td class="px-4 py-2">6</td><td class="px-4 py-2">実例確認で実際にMRへ投稿するか、投稿直前で止めるか</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="text-xs text-slate-500 border-t border-slate-200 pt-5 leading-relaxed">
+    <p>結果の正文は <code>reports/20260820_bubbly-exploring-biscuit_answer-talker設計調査.md</code>。本HTMLはその視覚化であり、内容はmdと同期させる。</p>
+    <p class="mt-1">本ファイルは flow-id 5-1（次タスクのための片付け）で <code>plans/</code> <code>worklog/</code> とまとめて削除される。恒久的に残す知見は flow-id 4-6 で <code>.claude/docs/spec/</code> <code>.claude/docs/ddr/</code> へ反映する。</p>
+    <p class="mt-1">要素間の関連が主題ではなく「6論点それぞれの結論と根拠」が主題のため、canvas形式ではなくTailwindCSS CDNの通常版を採った（処理の流れは一本道のパイプラインで、パン・ズームを要する関係網ではない）。</p>
+  </footer>
+
+</div>
+</body>
+</html>
