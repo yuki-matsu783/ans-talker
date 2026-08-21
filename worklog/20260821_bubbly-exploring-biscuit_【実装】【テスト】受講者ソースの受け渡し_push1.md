@@ -53,3 +53,46 @@ push回数: 9
 - flow-id 3-2: commit・リモートへ反映してレビュー依頼。
 - flow-id 3-3〜3-4: 実装計画のレビュー（**敵対的レビューはフェーズ3で残り1回**）。
 - 合意後、flow-id 3-6 で実装・テストを実施する。
+
+## 追記: flow-id 3-6（実装）— 取得部分まで
+
+### 実装した範囲
+
+`Provider.sh` の5関数（+ 各プロバイダ実装）と `answer-talker-submission.sh`（新規）。
+**3段すべてを実機で走らせて確認済み**（GitLab・GitHub両方）。
+
+### 実装中に踏んだ罠（4件。どれも実機でしか出ない）
+
+1. **`timeout` で bash関数を包もうとしていた。** `timeout "$sec" bash -c 'fetch_repo_archive …'` と
+   書いたが、**bash関数は子プロセスへ継承されない**ため呼べない。タイムアウトは
+   Provider側の `gh`/`glab` 呼び出しへ掛ける形（環境変数 `ATR_HTTP_TIMEOUT_SEC`）へ変更した。
+2. **`glab api` は `--jq` を受け付けない**（`gh api` にはある）。`ERROR` とだけ出て値が空になる。
+   既存コードがすべて `| jq` のパイプ形式なのはこのためだった。3箇所を修正。
+3. **`GITLAB_REPO` に数値のproject IDを入れると、以降のAPI呼び出しが全滅する。**
+   設計では head 側の識別子を「GitLabは数値のproject ID」としていたが、`glab` は
+   `owner/repo` 形式を期待する。**フォークのときだけ、追加の1回でパスを引く**形へ変更した
+   （フォークでなければ空を返して切り替えない）。
+4. **`jq -r` の複数行出力に CR が残り、段2が「1件目は成功して2件目で失敗する」形で壊れた。**
+   `.claude/rules/shell-script-style.md` に明記されている罠だが、`get_repo_tree` の出力を
+   さらに `jq -r '.files[].path'` で受ける段で再発した。**パスにCRが付いたままAPIへ渡すと
+   そのファイルだけ404**になる。`| tr -d '\r'` を挟んで解決。
+
+### 3段の実行結果（設計計画の検証条件4）
+
+```
+段1: {"stage":1,...,"fileCount":2,"reason":"stage-1"}
+段2: {"stage":2,...,"fileCount":2,"reason":"stage-2/size-over-limit"}   # --max-size-kb 0
+段3: {"stage":3,"root":null,"degraded":true,"reason":"size-over-limit"} # + --max-fetch-files 0
+```
+
+`cleanup` は `removed:true` → 2回目 `not-found`（冪等）→ マーカー無しは `no-marker` で
+**消さない**ことも確認した。
+
+### 設計から変えた点
+
+- **`resolve` へ `--repo` を追加した。** `use_target_repo` が設定する `_PROVIDER_CACHE` は
+  シェル変数であり、**別プロセスへ継承されない**。呼び出し側が先に `use_target_repo` を
+  呼んでいても、`bash answer-talker-submission.sh …` で起動した時点でプロバイダの判定が
+  cwd 基準へ戻ってしまう（実際に `gh: Not Found` が出た）。
+- **バイナリ判定を `grep -rlI` の一括実行にした。** ファイルごとに判定すると
+  ファイル数に比例して外部コマンドを起動することになるため。
