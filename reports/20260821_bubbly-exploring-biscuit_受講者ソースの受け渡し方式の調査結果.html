@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>受講者ソースの受け渡し方式の調査結果（issue #6）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-feature-settings: "palt"; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+<div class="max-w-6xl mx-auto px-6 py-10">
+
+  <header class="mb-10">
+    <p class="text-sm text-slate-500 mb-1">issue #6 ／ フェーズ2〈調査〉／ 2026-08-21</p>
+    <h1 class="text-3xl font-bold text-slate-900">受講者ソースの受け渡し方式の調査結果</h1>
+    <p class="mt-2 text-slate-600">計画: <span class="mono text-sm">plans/【調査】受講者ソースの受け渡し方式.md</span>（6論点）</p>
+  </header>
+
+  <!-- 結論 -->
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">結論</h2>
+    <div class="grid md:grid-cols-3 gap-4">
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
+        <p class="text-xs font-bold text-emerald-600 mb-2">1. 案Aは成立した</p>
+        <p class="text-sm leading-relaxed">issue #1 の「ローカルGitLabへ <span class="mono">git</span> で到達できない」は<strong>環境の制約ではなく、資格情報の供給方法の問題</strong>だった。両プロバイダで MR head を取得でき、<span class="mono">headSha</span> と一致。</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-indigo-500">
+        <p class="text-xs font-bold text-indigo-600 mb-2">2. 案B-d（アーカイブ）が最有力</p>
+        <p class="text-sm leading-relaxed">計画に無かった選択肢。両プロバイダとも<strong>API 1回</strong>で全ファイルが取れ、<strong>ファイル数に依存せず</strong>、<strong><span class="mono">.git</span> を含まない</strong>。</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-rose-500">
+        <p class="text-xs font-bold text-rose-600 mb-2">3. 禁止語の拡張は必須</p>
+        <p class="text-sm leading-relaxed">実測で裏付け。広げなければ、issue #6 の目的である<strong>「hunk外ファイルに基づく指摘」だけが選択的に落ちる</strong>。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 方式の比較 -->
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">方式の比較（論点1・2・3）</h2>
+    <div class="overflow-x-auto bg-white rounded-lg shadow-sm">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600">
+          <tr>
+            <th class="text-left px-4 py-3 font-semibold">方式</th>
+            <th class="text-left px-4 py-3 font-semibold">呼び出し回数</th>
+            <th class="text-left px-4 py-3 font-semibold">実測</th>
+            <th class="text-left px-4 py-3 font-semibold">.git</th>
+            <th class="text-left px-4 py-3 font-semibold">目的達成</th>
+            <th class="text-left px-4 py-3 font-semibold">評価</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr>
+            <td class="px-4 py-3">案A: shallow clone</td>
+            <td class="px-4 py-3">1回</td>
+            <td class="px-4 py-3 mono text-xs">両プロバイダで成功</td>
+            <td class="px-4 py-3 text-rose-600 font-semibold">同梱（除去必須）</td>
+            <td class="px-4 py-3 text-emerald-600">○</td>
+            <td class="px-4 py-3 text-slate-600">gitの資格情報供給が要る</td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3">案B-a: matched のみ</td>
+            <td class="px-4 py-3">ファイル数分</td>
+            <td class="px-4 py-3 mono text-xs">—</td>
+            <td class="px-4 py-3 text-emerald-600">無し</td>
+            <td class="px-4 py-3 text-rose-600 font-semibold">×</td>
+            <td class="px-4 py-3 text-slate-600">issue本文の案B。<strong>目的未達</strong></td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3">案B-b: ツリー全体</td>
+            <td class="px-4 py-3 text-rose-600 font-semibold">ファイル数分</td>
+            <td class="px-4 py-3 mono text-xs">672ms / 1027ms 毎</td>
+            <td class="px-4 py-3 text-emerald-600">無し</td>
+            <td class="px-4 py-3 text-emerald-600">○</td>
+            <td class="px-4 py-3 text-slate-600">50ファイルで34〜51秒</td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3">案B-c: 絞ったツリー</td>
+            <td class="px-4 py-3">絞り込み次第</td>
+            <td class="px-4 py-3 mono text-xs">—</td>
+            <td class="px-4 py-3 text-emerald-600">無し</td>
+            <td class="px-4 py-3 text-amber-600">△</td>
+            <td class="px-4 py-3 text-slate-600">条件の設計・保守コスト</td>
+          </tr>
+          <tr class="bg-indigo-50">
+            <td class="px-4 py-3 font-bold text-indigo-900">案B-d: アーカイブ一括</td>
+            <td class="px-4 py-3 font-bold text-indigo-900">1回</td>
+            <td class="px-4 py-3 mono text-xs font-bold text-indigo-900">1122ms / 2044ms</td>
+            <td class="px-4 py-3 text-emerald-600 font-semibold">無し</td>
+            <td class="px-4 py-3 text-emerald-600 font-semibold">○</td>
+            <td class="px-4 py-3 font-bold text-indigo-900">最有力</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="text-xs text-slate-500 mt-2">実測値は GitHub / GitLab の順。ファイル単位APIはネットワーク往復を含むため、<span class="mono">shell-script-style.md</span> が想定する外部プロセス起動コスト（95ms/回）よりも桁で重い。</p>
+  </section>
+
+  <!-- 論点1の詳細 -->
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">論点1: issue #1 の結論を覆した</h2>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="bg-white rounded-lg shadow-sm p-5">
+        <p class="text-xs font-bold text-rose-600 mb-2">認証なし（issue #1 の再現）</p>
+        <pre class="mono text-xs bg-slate-900 text-rose-300 p-3 rounded overflow-x-auto">fatal: could not read Username for
+'http://localhost:8929':
+terminal prompts disabled</pre>
+        <p class="text-sm mt-3 leading-relaxed">原因はシステムスコープの <span class="mono">credential.helper=manager</span>（Git Credential Manager）。非対話環境ではプロンプトを出せずに失敗していた。</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5">
+        <p class="text-xs font-bold text-emerald-600 mb-2">GIT_ASKPASS でトークンを供給</p>
+        <pre class="mono text-xs bg-slate-900 text-emerald-300 p-3 rounded overflow-x-auto">* [new ref] refs/merge-requests/9/head
+              -&gt; atr-head
+c3c0fa6d01f1c5039210d8a1527aa62357b3e6c3</pre>
+        <p class="text-sm mt-3 leading-relaxed"><strong>グローバル設定は一切変更していない</strong>（前後で <span class="mono">git config --global</span> の出力が同一であることを確認済み）。</p>
+      </div>
+    </div>
+    <div class="mt-4 grid md:grid-cols-3 gap-4">
+      <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+        <p class="text-xs font-bold text-amber-700 mb-1">落とし穴 1</p>
+        <p class="text-sm"><span class="mono">credential.helper</span> にシェル関数を渡す方式は git bash で<strong>ハングする</strong>（2分でタイムアウト）。<span class="mono">GIT_ASKPASS</span> を使う。</p>
+      </div>
+      <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+        <p class="text-xs font-bold text-amber-700 mb-1">落とし穴 2</p>
+        <p class="text-sm"><span class="mono">use_target_repo</span> のJSONの <span class="mono">.host</span> は<strong>ポートを落とす</strong>（<span class="mono">localhost</span>）。URLは環境変数 <span class="mono">GITLAB_HOST</span> から組み立てる。</p>
+      </div>
+      <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+        <p class="text-xs font-bold text-amber-700 mb-1">落とし穴 3</p>
+        <p class="text-sm">Windows版 <span class="mono">tar</span> はドライブレターをホスト名と誤解する。<span class="mono">--force-local</span> を付ける。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 論点5 -->
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-rose-500 pl-3">論点5: 禁止語の拡張が必須であることを実測</h2>
+    <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600">
+          <tr><th class="text-left px-4 py-3">finding</th><th class="text-left px-4 py-3">内容</th><th class="text-left px-4 py-3">結果</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr class="bg-rose-50">
+            <td class="px-4 py-3 font-bold">A</td>
+            <td class="px-4 py-3">「読み込みの責務は <span class="mono font-bold">read_lines</span> のような単位で切り出せる」</td>
+            <td class="px-4 py-3 font-bold text-rose-600">drop（反応語: read_lines）</td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3 font-bold">B</td>
+            <td class="px-4 py-3">「<span class="mono">take_lines</span> と <span class="mono">keep_lines</span> は同じ関心を2つに分けている」</td>
+            <td class="px-4 py-3 text-emerald-600">残る</td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3 font-bold">C</td>
+            <td class="px-4 py-3">「入力・絞り込み・出力の3つの関心が1つの関数に同居している」</td>
+            <td class="px-4 py-3 text-emerald-600">残る</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-4 bg-rose-50 border-l-4 border-rose-500 p-4 rounded">
+      <p class="text-sm leading-relaxed"><strong>この drop 自体は現仕様どおり正しい。</strong>問題は、<strong>受講者が hunk外のファイルで <span class="mono">read_lines</span> を定義していた場合も同じく drop される</strong>こと。差し引き集合の材料が <span class="mono">.files[] | .patch, .path, .oldPath</span>（＝diff）からしか作られないため、受講者ソース全体を渡しても材料は変わらない。</p>
+    </div>
+  </section>
+
+  <!-- 論点6 -->
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">論点6: 17パターンは「specからは復元不能／実環境からは復元できた」</h2>
+    <div class="grid md:grid-cols-2 gap-4 mb-4">
+      <div class="bg-rose-50 border border-rose-200 rounded-lg p-5">
+        <p class="font-bold text-rose-700 mb-2">specだけでは復元できない</p>
+        <p class="text-sm leading-relaxed">specにあるのは5軸のみ。全組み合わせは <strong>5×3×3×2×2 = 180通り</strong>あり、<strong>どの17個を選んだかは軸からは決まらない</strong>。issue #1 の「再現に必要な情報はspecで足りる」という判断は誤りだった。</p>
+      </div>
+      <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-5">
+        <p class="font-bold text-emerald-700 mb-2">実環境が残っていた</p>
+        <p class="text-sm leading-relaxed">ローカルGitLabに<strong>削除予定の状態で残存</strong>（<span class="mono">marked_for_deletion_on: 2026-08-20</span>）。ユーザー承認のうえ <span class="mono">POST /projects/:id/restore</span> で復元し、<strong>9つのMR・10ブランチを回収</strong>した。</p>
+      </div>
+    </div>
+    <div class="overflow-x-auto bg-white rounded-lg shadow-sm">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600">
+          <tr><th class="text-left px-4 py-3">ブランチ</th><th class="text-left px-4 py-3">変更ファイル</th><th class="text-left px-4 py-3">対応する軸</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 mono text-xs">
+          <tr><td class="px-4 py-2">p1-monolith</td><td class="px-4 py-2">M main.sh</td><td class="px-4 py-2">実装: 分割不足</td></tr>
+          <tr><td class="px-4 py-2">p2-alt-split</td><td class="px-4 py-2">A io.sh / A transform.sh / M main.sh</td><td class="px-4 py-2">実装: 別解（2分割）</td></tr>
+          <tr class="bg-indigo-50"><td class="px-4 py-2 font-bold">p2b-single-file</td><td class="px-4 py-2">M main.sh</td><td class="px-4 py-2 font-bold">判別用: 責務3分割・ファイル1つ</td></tr>
+          <tr><td class="px-4 py-2">p3-duplication</td><td class="px-4 py-2">M main.sh</td><td class="px-4 py-2">実装: 重複</td></tr>
+          <tr><td class="px-4 py-2">p4-overabstraction</td><td class="px-4 py-2">M main.sh</td><td class="px-4 py-2">実装: 余分な抽象化</td></tr>
+          <tr><td class="px-4 py-2">p5-near-answer</td><td class="px-4 py-2">A input.sh / A select.sh / A render.sh / M main.sh</td><td class="px-4 py-2">実装: ほぼ正解</td></tr>
+          <tr><td class="px-4 py-2">p9-delete</td><td class="px-4 py-2">D README.md / A USAGE.md</td><td class="px-4 py-2">diff: 削除</td></tr>
+          <tr><td class="px-4 py-2">p10-rename</td><td class="px-4 py-2">R main.sh → cli.sh</td><td class="px-4 py-2">diff: リネーム</td></tr>
+          <tr><td class="px-4 py-2">p11-addonly</td><td class="px-4 py-2">A filter.sh</td><td class="px-4 py-2">diff: 新規追加</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="text-xs text-slate-500 mt-2">欠番（p6〜p8）は、ブランチを増やさず<strong>実行条件だけ変えた軸</strong>（正解ソースの形態3種・ネタバレ検査・投稿の有無）と考えられる。この表をspecへ残すことがフェーズ4の反映候補。</p>
+    <p class="text-sm text-slate-600 mt-3">GitHub側は spec に手順が無かったため、ユーザーが用意した <span class="mono">yuki-matsu783/test-repo</span> へ <strong>Contents API</strong> で題材を投入して確立した（GitLabの Commits API と対称）。<strong>AIエージェントはリポジトリを作成していない。</strong></p>
+  </section>
+
+  <!-- 残課題 -->
+  <section class="mb-6">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-amber-500 pl-3">未決定のまま残す事項</h2>
+    <ol class="space-y-2 text-sm list-decimal list-inside bg-white rounded-lg shadow-sm p-5">
+      <li><strong>どの方式を採るか</strong>（案A / 案B-d / 併用）はフェーズ3の <span class="mono">【設計】</span> で決める。評価では<strong>案B-dが最有力</strong>。</li>
+      <li><strong>GitHub側の非公開リポジトリでの資格情報</strong>は未確認（<span class="mono">test-repo</span> が公開のため）。</li>
+      <li><strong>極端に大きいリポジトリでのアーカイブ取得の挙動</strong>は未確認。</li>
+      <li><strong><span class="mono">submissionOnly</span> の意味変更</strong>をサブエージェント定義へどう反映するか（論点4）。</li>
+      <li><strong>アーカイブ取得時のバイナリ・巨大ファイルの扱い</strong>（サブエージェントへ渡す前に除外するか）。</li>
+    </ol>
+  </section>
+
+  <footer class="text-xs text-slate-400 border-t border-slate-200 pt-4">
+    結果の正文は <span class="mono">reports/20260821_bubbly-exploring-biscuit_受講者ソースの受け渡し方式の調査結果.md</span>。本HTMLはその視覚化。
+  </footer>
+
+</div>
+</body>
+</html>
