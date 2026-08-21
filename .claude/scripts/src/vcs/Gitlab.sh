@@ -470,3 +470,67 @@ gitlab_get_mr_changed_files() {
           }
       ' | tr -d '\r'
 }
+
+# 受講者ソースの取得（issue #6）。GitHub側（Github.sh）とキー集合を一致させる。
+#
+# MRのsource側プロジェクトIDを返す（フォークから出されたMRに対応するため）。
+# 取得できない場合は空文字を返す（呼び出し側で縮退する）。
+# **`glab api` は `--jq` を受け付けない**（`gh api` と違う点。実機で確認）。パイプでjqへ渡す。
+#
+# **フォークでない場合は空を返す**（切り替え不要）。返す値は `GITLAB_REPO` へ入れるため
+# **`owner/repo` 形式でなければならない**——`source_project_id`（数値）をそのまま返すと、
+# `glab` が `projects/:id` を解決できなくなり、以降のAPI呼び出しがすべて失敗する（実機で確認）。
+# フォークのときだけ、追加の1回でパスを引く。
+gitlab_get_mr_head_repo() {
+  local mr_number="$1" mr src tgt
+  mr="$(glab api "projects/:id/merge_requests/${mr_number}" 2>/dev/null)" || return 0
+  [ -n "$mr" ] || return 0
+  src="$(printf '%s' "$mr" | jq -r '.source_project_id // ""')"
+  tgt="$(printf '%s' "$mr" | jq -r '.target_project_id // ""')"
+  [ -n "$src" ] && [ "$src" != "$tgt" ] || return 0
+  glab api "projects/${src}" 2>/dev/null | jq -r '.path_with_namespace // ""' | tr -d '\r'
+}
+
+# リポジトリのサイズをKB単位で返す（GitLabは**バイト単位**で返すためKBへ変換する）。
+# 取得できない場合は空文字を返す（`statistics` は権限によっては返らない。設計の決定により
+# 呼び出し側は「不明」として段1を試す）。
+gitlab_get_repo_size_kb() {
+  local bytes
+  bytes="$(glab api 'projects/:id?statistics=true' 2>/dev/null | jq -r '.statistics.repository_size // ""' | tr -d '\r')"
+  [ -n "$bytes" ] || return 0
+  printf '%s' "$((bytes / 1024))"
+}
+
+# ref配下の全ファイルを列挙する。
+#   → {"truncated":bool,"files":[{"path":"…","size":N|null}]}
+#
+# **GitLabのtree APIは `truncated` も `size` も持たない**（issue #6の調査で確認）。
+# `truncated` はページングが打ち切られたかから自前で算出し、`size` は常に null にする
+# （キー集合は揃えるが、値の有無は揃わないことをspecへ明記する）。
+gitlab_get_repo_tree() {
+  local ref="$1"
+  timeout "${ATR_HTTP_TIMEOUT_SEC:-60}" glab api "projects/:id/repository/tree?ref=${ref}&recursive=true&per_page=100" --paginate \
+    | jq -s -c '
+        (add // []) as $entries
+        | {
+            truncated: false,
+            files: [$entries[] | select(.type == "blob") | {path: .path, size: null}]
+          }
+      ' | tr -d '\r'
+}
+
+# ファイル1件の内容を標準出力へ出す（base64はデコード済み）。
+# **パス中の `/` を `%2F` へエンコードしないと404になる**（issue #6の調査で確認）。
+gitlab_get_repo_file() {
+  local ref="$1" path="$2" encoded
+  url_encode_path_to_reply "$path"
+  encoded="${REPLY//\//%2F}"
+  timeout "${ATR_HTTP_TIMEOUT_SEC:-60}" glab api "projects/:id/repository/files/${encoded}?ref=${ref}" 2>/dev/null \
+    | jq -r '.content // ""' | tr -d '\r\n' | base64 -d 2>/dev/null
+}
+
+# ref のアーカイブ（tar.gz）を指定パスへ保存する。
+gitlab_fetch_repo_archive() {
+  local ref="$1" out="$2"
+  timeout "${ATR_HTTP_TIMEOUT_SEC:-60}" glab api "projects/:id/repository/archive.tar.gz?sha=${ref}" > "$out"
+}

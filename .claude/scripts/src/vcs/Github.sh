@@ -410,3 +410,57 @@ github_get_mr_changed_files() {
           }
       ' | tr -d '\r'
 }
+
+# 受講者ソースの取得（issue #6）。設計:
+# reports/…受講者ソースの受け渡しの設計結果.md → 反映先は .claude/docs/spec/answer-talker.md
+#
+# PRのhead側リポジトリを `owner/repo` 形式で返す（フォークから出されたPRに対応するため）。
+#
+# **フォークでない場合は空を返す**（切り替え不要）。head側リポジトリが削除されている場合も
+# 空になり、呼び出し側は base 側のまま取得を試みて失敗し、縮退する。
+github_get_mr_head_repo() {
+  local mr_number="$1" json head base
+  json="$(gh api "repos/{owner}/{repo}/pulls/${mr_number}" \
+    --jq '{head: (.head.repo.full_name // ""), base: .base.repo.full_name}' 2>/dev/null | tr -d '\r')"
+  [ -n "$json" ] || return 0
+  head="$(printf '%s' "$json" | jq -r '.head')"
+  base="$(printf '%s' "$json" | jq -r '.base')"
+  [ -n "$head" ] && [ "$head" != "$base" ] || return 0
+  printf '%s' "$head"
+}
+
+# リポジトリ全体のサイズをKB単位で返す。取得できない場合は空文字を返す
+# （呼び出し側は「不明」として段1を試す。設計の決定）。
+github_get_repo_size_kb() {
+  gh api "repos/{owner}/{repo}" --jq '.size // ""' 2>/dev/null | tr -d '\r'
+}
+
+# ref配下の全ファイルを列挙する。
+#   → {"truncated":bool,"files":[{"path":"…","size":N|null}]}
+github_get_repo_tree() {
+  local ref="$1"
+  timeout "${ATR_HTTP_TIMEOUT_SEC:-60}" gh api "repos/{owner}/{repo}/git/trees/${ref}?recursive=1" \
+    | jq -c '{
+        truncated: (.truncated // false),
+        files: [.tree[] | select(.type == "blob") | {path: .path, size: (.size // null)}]
+      }' | tr -d '\r'
+}
+
+# ファイル1件の内容を標準出力へ出す（base64はデコード済み）。
+#
+# **パスのURLエンコードは関数側の責務**（設計の決定）。ただしGitHubの contents API は
+# パス区切りの `/` をそのまま受けるため、`url_encode_path_to_reply` の既定（`/` を保持する）で
+# よい。**GitLab側は `/` も `%2F` にしないと404になる**点が異なる。
+github_get_repo_file() {
+  local ref="$1" path="$2" encoded
+  url_encode_path_to_reply "$path"
+  encoded="$REPLY"
+  timeout "${ATR_HTTP_TIMEOUT_SEC:-60}" gh api "repos/{owner}/{repo}/contents/${encoded}?ref=${ref}" \
+    --jq '.content // ""' 2>/dev/null | tr -d '\r\n' | base64 -d 2>/dev/null
+}
+
+# ref のアーカイブ（tar.gz）を指定パスへ保存する。
+github_fetch_repo_archive() {
+  local ref="$1" out="$2"
+  timeout "${ATR_HTTP_TIMEOUT_SEC:-60}" gh api "repos/{owner}/{repo}/tarball/${ref}" > "$out"
+}

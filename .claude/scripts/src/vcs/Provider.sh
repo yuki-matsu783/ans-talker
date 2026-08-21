@@ -916,3 +916,105 @@ get_mr_changed_files() {
     gitlab) gitlab_get_mr_changed_files "$mr_number" ;;
   esac
 }
+
+# ---------------------------------------------------------------------------
+# 受講者ソースの取得（issue #6）
+#
+# 設計: reports/…受講者ソースの受け渡しの設計結果.md（フェーズ4で
+# .claude/docs/spec/answer-talker.md へ反映する）
+#
+# 3段の縮退を前提にした部品を提供する。段の判断そのものは
+# `.claude/scripts/src/answer-talker-submission.sh` が行い、この層は「取れるか／取る」だけを担う。
+#
+#   段1: fetch_repo_archive   … アーカイブ1回でツリー全体
+#   段2: get_repo_tree + get_repo_file … ファイル単位（mcp経路の受け皿も兼ねる）
+#   段3: 取得しない（hunkのみ）
+#
+# **対象リポジトリは引数で受けず、`use_target_repo` が設定するプロセス状態に従う**
+# （`Provider.sh` 既存の流儀）。フォークPRのhead側への切り替えは
+# `with_mr_head_repo` が一時的に行い、呼び出し側へ漏らさない。
+# ---------------------------------------------------------------------------
+
+# MR/PRのhead側リポジトリの識別子を返す（GitHubは `owner/repo`、GitLabは数値のproject ID）。
+# 取得できない場合（フォーク元が削除された等）は空文字を返す。
+get_mr_head_repo() {
+  require_vcs_cli get_mr_head_repo || return 1
+  local mr_number="$1"
+  case "$(get_provider)" in
+    github) github_get_mr_head_repo "$mr_number" ;;
+    gitlab) gitlab_get_mr_head_repo "$mr_number" ;;
+  esac
+}
+
+# 対象リポジトリのサイズをKB単位で返す。**取得できない場合は空文字**を返す
+# （呼び出し側は「不明」として段1を試す。「超過扱い」にすると、権限の弱い環境で
+# 上限とは無関係の理由で機能が縮退するため。設計の決定）。
+get_repo_size_kb() {
+  require_vcs_cli get_repo_size_kb || return 1
+  case "$(get_provider)" in
+    github) github_get_repo_size_kb ;;
+    gitlab) gitlab_get_repo_size_kb ;;
+  esac
+}
+
+# ref配下の全ファイルを列挙する（段2の対象集合を決めるために使う）。
+#   → {"truncated":bool,"files":[{"path":"…","size":N|null}]}
+#
+# **段2の対象パスをdiffから作ってはいけない。** それでは受講者が今回変更していないファイルが
+# 入らず、「対応が付いたファイルだけ取得する」案（issue #6 が目的未達として却下したもの）と
+# 同じ状態へ静かに落ちる。
+get_repo_tree() {
+  require_vcs_cli get_repo_tree || return 1
+  local ref="$1"
+  case "$(get_provider)" in
+    github) github_get_repo_tree "$ref" ;;
+    gitlab) gitlab_get_repo_tree "$ref" ;;
+  esac
+}
+
+# ファイル1件の内容を標準出力へ出す（base64はデコード済み）。
+# パスのURLエンコードは各プロバイダ実装の責務（GitLabは `/` も `%2F` にする）。
+get_repo_file() {
+  require_vcs_cli get_repo_file || return 1
+  local ref="$1" path="$2"
+  case "$(get_provider)" in
+    github) github_get_repo_file "$ref" "$path" ;;
+    gitlab) gitlab_get_repo_file "$ref" "$path" ;;
+  esac
+}
+
+# ref のアーカイブ（tar.gz）を指定パスへ保存する（段1）。
+fetch_repo_archive() {
+  require_vcs_cli fetch_repo_archive || return 1
+  local ref="$1" out="$2"
+  case "$(get_provider)" in
+    github) github_fetch_repo_archive "$ref" "$out" ;;
+    gitlab) gitlab_fetch_repo_archive "$ref" "$out" ;;
+  esac
+}
+
+# MR/PRのhead側リポジトリへ一時的に切り替えて、渡されたコマンドを実行する。
+#
+# フォークから出されたMR/PRでは、head側が `use_target_repo` の設定先（base側）と異なる。
+# **切り替えはこの関数の中で完結させ、呼び出し側へ漏らさない**（設計の決定）。
+# head側が取得できない場合は切り替えず、base側のまま実行する（呼び出し側が
+# 取得の失敗として縮退できるよう、ここでは失敗させない）。
+with_mr_head_repo() {
+  local mr_number="$1"; shift
+  local head_repo saved_gh="${GH_REPO:-}" saved_gl="${GITLAB_REPO:-}" status=0
+  head_repo="$(get_mr_head_repo "$mr_number")" || head_repo=""
+
+  if [ -n "$head_repo" ]; then
+    case "$(get_provider)" in
+      github) export GH_REPO="$head_repo" ;;
+      gitlab) export GITLAB_REPO="$head_repo" ;;
+    esac
+  fi
+
+  "$@" || status=$?
+
+  # 元へ戻す（空だった場合はunsetまで戻す）
+  if [ -n "$saved_gh" ]; then export GH_REPO="$saved_gh"; else unset GH_REPO || true; fi
+  if [ -n "$saved_gl" ]; then export GITLAB_REPO="$saved_gl"; else unset GITLAB_REPO || true; fi
+  return "$status"
+}
