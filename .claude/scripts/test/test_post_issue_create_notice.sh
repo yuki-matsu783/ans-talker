@@ -83,8 +83,14 @@ assert_contains "注意文がHANDOFF.mdを更新しない旨に言及する" "$N
 context_json="$(write_additional_context "$NOTICE_TEXT")"
 assert_eq "hookEventNameがPostToolUse" "PostToolUse" \
   "$(printf '%s' "$context_json" | jq -r '.hookSpecificOutput.hookEventName')"
+# **`tr -d '\r'` を外さないこと。** WindowsネイティブのjqはCRLFで出力するため、複数行の値を
+# `jq -r` で取り出すと**行の途中**にCRが残る（コマンド置換が落とすのは末尾の改行だけ）。
+# 単一行の値（直上のアサーション）では表面化せず、複数行の値でのみ「見た目は同じなのに
+# 行数-1バイトずれる」形で失敗する。CRが付くのは**このテストの取り出し方**であって、
+# 検査対象の `write_additional_context` が出すJSONではない（JSON文字列値の中に `\r`
+# エスケープは1つも入らないことを確認済み。issue #1 の作業中に切り分けた）。
 assert_eq "additionalContextへ注意文がそのまま入る" "$NOTICE_TEXT" \
-  "$(printf '%s' "$context_json" | jq -r '.hookSpecificOutput.additionalContext')"
+  "$(printf '%s' "$context_json" | jq -r '.hookSpecificOutput.additionalContext' | tr -d '\r')"
 
 echo "passed=$passed failures=$failures"
 [[ "$failures" -eq 0 ]]

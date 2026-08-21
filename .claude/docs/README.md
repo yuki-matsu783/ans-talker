@@ -40,6 +40,7 @@ keywords: [正史仕様, 意思決定ログ, issue-mr-workflow, シェルスク�
 - [adversarial-review.md](spec/adversarial-review.md) ── 敵対的レビュー（専任サブエージェント・インラインコメント投稿）
 - [cleanup-task.md](spec/cleanup-task.md) ── flow-id 5-1 後片付けの自動化スクリプト
 - [search-frontmatter.md](spec/search-frontmatter.md) ── ドキュメント横断検索スクリプト（index.jsonl検索）
+- [answer-talker.md](spec/answer-talker.md) ── 演習MRの正解照合レビュー（正解を転記せず概念的な指摘を返す）
 
 ## ddr（意思決定ログ）
 
@@ -104,3 +105,7 @@ DDRのうち0001・0002・0008・0015は持ち込んでいない**（連番に�
 - [0055-敵対的レビューの非対話判定は環境変数ではなくAIエージェントの判断に委ねる.md](ddr/0055-敵対的レビューの非対話判定は環境変数ではなくAIエージェントの判断に委ねる.md)
 - [0056-作業開始時のベースブランチ追従確認は専用スクリプトで検知しユーザー確認を挟む.md](ddr/0056-作業開始時のベースブランチ追従確認は専用スクリプトで検知しユーザー確認を挟む.md)
 - [0057-削除済み追跡ファイルの除外はextract-frontmatter側で行う.md](ddr/0057-削除済み追跡ファイルの除外はextract-frontmatter側で行う.md)
+- [0058-answer-talkerには実施回数の上限機構を課さない.md](ddr/0058-answer-talkerには実施回数の上限機構を課さない.md)
+- [0059-投稿コメントのラベルは共有関数の省略可能引数で切り替える.md](ddr/0059-投稿コメントのラベルは共有関数の省略可能引数で切り替える.md)
+- [0060-正解ソースがローカルパスならcloneしない.md](ddr/0060-正解ソースがローカルパスならcloneしない.md)
+- [0061-ネタバレ検査は誤検知の側へ倒し識別子は分割しない.md](ddr/0061-ネタバレ検査は誤検知の側へ倒し識別子は分割しない.md)

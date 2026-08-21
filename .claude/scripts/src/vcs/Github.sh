@@ -305,8 +305,8 @@ github_filter_findings_by_valid_lines() {
 # `pulls/<n>/reviews` へ渡すレビューJSONを組み立てる（純粋関数）。
 # 投稿対象が0件でも `body` だけのレビューとして成立する。
 github_build_review_payload() {
-  local body_file="$1"
-  jq -c --rawfile reviewBody "$body_file" '
+  local body_file="$1" label="${2:-敵対的レビュー}"
+  jq -c --rawfile reviewBody "$body_file" --arg reviewLabel "$label" '
     {
       event: "COMMENT",
       body: $reviewBody,
@@ -316,7 +316,7 @@ github_build_review_payload() {
             path: .path,
             line: .line,
             side: (.side // "RIGHT"),
-            body: ("Claude Codeより（敵対的レビュー）:\n\n"
+            body: ("Claude Codeより（" + $reviewLabel + "）:\n\n"
                    + "**[" + (.severity // "minor") + " / 確度: " + (.confidence // "medium")
                    + (if .category then " / " + .category else "" end) + "]** "
                    + (.title // "") + "\n\n" + (.body // ""))
@@ -329,7 +329,7 @@ github_build_review_payload() {
 # findings JSONファイルの指摘を、PRへ1回のレビューとしてインライン投稿する。
 # 投稿できなかった指摘はレビュー本文（サマリ）へ回す。結果を {"posted":N,"summarized":M} で返す。
 github_add_mr_inline_comments() {
-  local mr_number="$1" findings_file="$2"
+  local mr_number="$1" findings_file="$2" label="${3:-敵対的レビュー}"
   local tmpdir posted summarized
   tmpdir="$(mktemp -d)"
 
@@ -337,8 +337,9 @@ github_add_mr_inline_comments() {
   github_valid_ranges_from_files_json < "$tmpdir/files.json" > "$tmpdir/ranges.json"
   github_filter_findings_by_valid_lines "$tmpdir/ranges.json" < "$findings_file" > "$tmpdir/filtered.json"
 
-  jq -c '.summary' "$tmpdir/filtered.json" | format_findings_summary > "$tmpdir/body.md"
-  jq -c '.post' "$tmpdir/filtered.json" | github_build_review_payload "$tmpdir/body.md" > "$tmpdir/payload.json"
+  jq -c '.summary' "$tmpdir/filtered.json" | format_findings_summary "$label" > "$tmpdir/body.md"
+  jq -c '.post' "$tmpdir/filtered.json" \
+    | github_build_review_payload "$tmpdir/body.md" "$label" > "$tmpdir/payload.json"
 
   gh api "repos/{owner}/{repo}/pulls/${mr_number}/reviews" --input "$tmpdir/payload.json" >/dev/null
 
@@ -355,4 +356,57 @@ github_add_mr_inline_comments() {
 github_add_issue_comment() {
   local issue_number="$1" body_file="$2"
   gh issue comment "$issue_number" --body-file "$body_file" >/dev/null
+}
+
+# --- answer-talker: MR番号起点の変更ファイル取得（issue #1） ---
+
+# PR番号から、変更ファイルの一覧と差分本文を取得する（`get_mr_changed_files` のGitHub実装）。
+#
+# `gh pr diff`（unified diffのテキスト）ではなく `pulls/<n>/files` を使う。理由は3点。
+#   1. `github_add_mr_inline_comments` が有効行の算出に同じエンドポイントを使っており、
+#      「レビュー時に見た行」と「投稿できる行」の情報源が一致する。
+#   2. `status`（added/removed/modified/renamed）が取れる。正解との対応付けに要る。
+#   3. ファイル単位に構造化されており、そのまま後段（対応付け・ネタバレ検査）へ渡せる。
+#
+# 出力は大きくなりうるため、**呼び出し側は必ずファイルへリダイレクトし、コマンド置換で
+# 受けないこと**（.claude/rules/shell-script-style.md「大きなJSONを引数で渡さない」）。
+#
+# メタ情報（base/head/headSha）だけは小さいので、先に取得して `--argjson` で渡す。
+# 差分本体は標準入力から流し込むため、引数長の上限に当たらない。
+github_get_mr_changed_files() {
+  local mr_number="$1" meta
+  meta="$(gh api "repos/{owner}/{repo}/pulls/${mr_number}" \
+    --jq '{base: .base.ref, head: .head.ref, headSha: .head.sha}' | tr -d '\r')"
+  if [ -z "$meta" ]; then
+    printf 'github_get_mr_changed_files: PR %s のメタ情報を取得できませんでした\n' "$mr_number" >&2
+    return 1
+  fi
+  # `--paginate` は配列レスポンスを1つの配列へまとめるが、`jq -s` で受けることで
+  # 「1配列」「ページごとに複数配列」のどちらでも同じ結果になる。
+  gh api "repos/{owner}/{repo}/pulls/${mr_number}/files" --paginate \
+    | jq -s -c --argjson meta "$meta" '
+        (add // []) as $files
+        | $meta + {
+            totalFiles: ($files | length),
+            truncatedFiles: ([$files[] | select(.patch == null)] | length),
+            capped: (($files | length) >= 3000),
+            files: [
+              $files[]
+              | {
+                  path: .filename,
+                  oldPath: (.previous_filename // .filename),
+                  status: (
+                    if .status == "added" then "added"
+                    elif .status == "removed" then "removed"
+                    elif .status == "renamed" then "renamed"
+                    else "modified" end
+                  ),
+                  additions: (.additions // 0),
+                  deletions: (.deletions // 0),
+                  patch: (.patch // ""),
+                  truncated: (.patch == null)
+                }
+            ]
+          }
+      ' | tr -d '\r'
 }

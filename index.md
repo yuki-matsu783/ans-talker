@@ -21,8 +21,12 @@ keywords: [directory, repository-map, リポジトリマップ, ディレクト�
     - [./.claude/docs/ddr/](./.claude/docs/ddr/) 意思決定ログ（DDR: Design Decision Record。追記のみ）。
   - [./.claude/rules/](./.claude/rules/) AI向け詳細ルール（コーディング規約・ディレクトリ構成・ドキュメント運用等）。
   - [./.claude/skills/](./.claude/skills/) `/issue-mr-flow`（唯一の実装フロー定義）・`/commit`
-    ・`/issue-create`・`/resolve-conflict`・`/canvas-report`・`/doc-search` のスキル定義。
-  - [./.claude/agents/](./.claude/agents/) サブエージェント定義（issue-mr-flow途中引き継ぎ用）。
+    ・`/issue-create`・`/resolve-conflict`・`/canvas-report`・`/doc-search`
+    ・`/adversarial-review`・`/review-points`・`/answer-talker`（演習MRの正解照合レビュー）
+    のスキル定義。
+  - [./.claude/agents/](./.claude/agents/) サブエージェント定義（issue-mr-flow途中引き継ぎ用の
+    `issue-mr-resume`、敵対的レビュー用の `adversarial-reviewer`、演習MRの正解照合レビュー用の
+    `answer-talker-reviewer`）。
   - [./.claude/scripts/](./.claude/scripts/) AIエージェントが`.claude/skills/*`経由で能動的に実行するスクリプト一式。
     - [./.claude/scripts/src/](./.claude/scripts/src/) issue駆動MRワークフロー支援スクリプト等（bash）。
       - [./.claude/scripts/src/vcs/](./.claude/scripts/src/vcs/) GitHub/GitLabの差異を吸収するVCS抽象化層（`Provider.sh`）。

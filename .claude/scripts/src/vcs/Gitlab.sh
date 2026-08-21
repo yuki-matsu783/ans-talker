@@ -307,11 +307,11 @@ gitlab_add_mr_thread() {
 #   - コンテキスト行への指摘: 両方
 # `old_path` / `new_path` はGitLabが常に要求するため、片方しか無い場合は同じ値で埋める。
 gitlab_build_discussion_body() {
-  local finding="$1" diff_refs="$2"
-  printf '%s' "$finding" | jq -c --argjson refs "$diff_refs" '
+  local finding="$1" diff_refs="$2" label="${3:-敵対的レビュー}"
+  printf '%s' "$finding" | jq -c --argjson refs "$diff_refs" --arg reviewLabel "$label" '
     . as $f
     | {
-        body: ("Claude Codeより（敵対的レビュー）:\n\n"
+        body: ("Claude Codeより（" + $reviewLabel + "）:\n\n"
                + "**[" + ($f.severity // "minor") + " / 確度: " + ($f.confidence // "medium")
                + (if $f.category then " / " + $f.category else "" end) + "]** "
                + ($f.title // "") + "\n\n" + ($f.body // "")),
@@ -358,7 +358,7 @@ gitlab_summary_post_kind() {
 # 起動コストは無視できる（.claude/rules/shell-script-style.md「外部プロセス起動のコスト」は
 # ファイル数に比例して外部コマンドを起動するホットパスを対象とした指針）。
 gitlab_add_mr_inline_comments() {
-  local mr_number="$1" findings_file="$2"
+  local mr_number="$1" findings_file="$2" label="${3:-敵対的レビュー}"
   local tmpdir diff_refs finding posted=0 summarized
 
   tmpdir="$(mktemp -d)"
@@ -377,7 +377,7 @@ gitlab_add_mr_inline_comments() {
   jq -c '(.findings // [])[]' "$findings_file" > "$tmpdir/findings.jsonl"
   : > "$tmpdir/failed.jsonl"
   while IFS= read -r finding; do
-    gitlab_build_discussion_body "$finding" "$diff_refs" > "$tmpdir/body.json"
+    gitlab_build_discussion_body "$finding" "$diff_refs" "$label" > "$tmpdir/body.json"
     if glab api "projects/:id/merge_requests/${mr_number}/discussions" \
          -X POST -H "Content-Type: application/json" --input "$tmpdir/body.json" \
          >/dev/null 2>&1 </dev/null; then
@@ -387,7 +387,7 @@ gitlab_add_mr_inline_comments() {
     fi
   done < "$tmpdir/findings.jsonl"
 
-  jq -s '.' "$tmpdir/failed.jsonl" | format_findings_summary > "$tmpdir/summary.md"
+  jq -s '.' "$tmpdir/failed.jsonl" | format_findings_summary "$label" > "$tmpdir/summary.md"
   # Windowsネイティブのjqはコマンド置換でも行末へCRを付ける（`.claude/rules/shell-script-style.md`
   # 「文字コード」）。CRが残ると数値比較が `integer expression expected` で落ちるため取り除く。
   summarized="$(jq -s 'length' "$tmpdir/failed.jsonl" | tr -d '\r')"
@@ -412,4 +412,61 @@ gitlab_add_issue_comment() {
   body="$(cat "$body_file")"
   glab api "projects/:id/issues/${issue_number}/notes" \
     -X POST -f "body=${body}" >/dev/null
+}
+
+# --- answer-talker: MR番号起点の変更ファイル取得（issue #1） ---
+
+# MR番号（iid）から、変更ファイルの一覧と差分本文を取得する（`get_mr_changed_files` のGitLab実装）。
+#
+# 非推奨の `/changes` ではなく `/diffs` を使う。実機（GitLab CE 18.5.4-ce.0）で比較した結果、
+#   - 切り捨てを**ファイル単位**で表せる（`/changes` の `overflow` はMR全体で1つ）
+#   - ページングがある（`/changes` にはページングヘッダが返らない）
+# の2点で優る。代わりにMRのメタ情報が同じ応答に含まれないため、2回に分けて取得する。
+#
+# GitLabは**ファイル単位の増減行数を返さない**（GitHubの `additions`/`deletions` に相当する
+# キーが無い）。差分本文の行頭 `+` / `-`（`+++` / `---` を除く）を数えて算出する。
+#
+# 出力は大きくなりうるため、**呼び出し側は必ずファイルへリダイレクトすること**。
+gitlab_get_mr_changed_files() {
+  local mr_number="$1" meta
+  meta="$(glab api "projects/:id/merge_requests/${mr_number}" \
+    | jq -c '{base: .target_branch, head: .source_branch, headSha: .sha}' | tr -d '\r')"
+  if [ -z "$meta" ] || [ "$meta" = "null" ]; then
+    printf 'gitlab_get_mr_changed_files: MR %s のメタ情報を取得できませんでした\n' "$mr_number" >&2
+    return 1
+  fi
+  glab api "projects/:id/merge_requests/${mr_number}/diffs" --paginate \
+    | jq -s -c --argjson meta "$meta" '
+        def line_counts($d):
+          ($d | split("\n")) as $ls
+          | {
+              additions: ([$ls[] | select(startswith("+") and (startswith("+++") | not))] | length),
+              deletions: ([$ls[] | select(startswith("-") and (startswith("---") | not))] | length)
+            };
+        (add // []) as $files
+        | $meta + {
+            totalFiles: ($files | length),
+            truncatedFiles: ([$files[] | select((.too_large // false) or (.collapsed // false))] | length),
+            capped: false,
+            files: [
+              $files[]
+              | . as $f
+              | line_counts($f.diff // "") as $c
+              | {
+                  path: $f.new_path,
+                  oldPath: ($f.old_path // $f.new_path),
+                  status: (
+                    if ($f.new_file // false) then "added"
+                    elif ($f.deleted_file // false) then "removed"
+                    elif ($f.renamed_file // false) then "renamed"
+                    else "modified" end
+                  ),
+                  additions: $c.additions,
+                  deletions: $c.deletions,
+                  patch: ($f.diff // ""),
+                  truncated: (($f.too_large // false) or ($f.collapsed // false))
+                }
+            ]
+          }
+      ' | tr -d '\r'
 }
