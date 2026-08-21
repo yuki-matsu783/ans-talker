@@ -46,9 +46,9 @@
           <span class="font-bold">アーカイブ一括取得</span>
           <span class="mono text-xs text-slate-500">tarball / archive.tar.gz</span>
         </div>
-        <p class="text-sm text-slate-600">1回・ファイル数非依存・<span class="mono">.git</span> を含まない（1122ms / 2044ms）。<strong>使う条件</strong>: <span class="mono">cli</span> 経路かつリポジトリサイズが上限以内。</p>
+        <p class="text-sm text-slate-600">1回・ファイル数非依存・<span class="mono">.git</span> を含まない（1122ms / 2044ms）。<strong>使う条件</strong>: <span class="mono">cli</span> 経路、<strong>または <span class="mono">mcp</span> でアーカイブ取得ツールが使える場合</strong>（実行時に判定）。かつサイズが上限以内（<strong>不明なら試す</strong>）。</p>
       </div>
-      <div class="pl-8 text-slate-400 text-sm">↓ API不達 / サイズ上限超過 / <span class="mono">mcp</span> で対応ツールなし</div>
+      <div class="pl-8 text-slate-400 text-sm">↓ API不達 / サイズ上限超過 / <strong>タイムアウト</strong> / <span class="mono">mcp</span> で対応ツールなし</div>
       <div class="bg-white rounded-lg shadow-sm p-5 border-l-4 border-emerald-500">
         <div class="flex items-baseline gap-3 mb-2">
           <span class="text-2xl font-bold text-emerald-600">段2</span>
@@ -56,8 +56,9 @@
           <span class="mono text-xs text-slate-500">contents / files</span>
         </div>
         <p class="text-sm text-slate-600">672ms / 1027ms × ファイル数のため、<strong>50件を上限</strong>とする。<strong>段1と同じ認証基盤</strong>で済み、<span class="mono">mcp</span> 経路（<span class="mono">get_file_contents</span>）の受け皿にもなる。</p>
+        <p class="text-sm mt-2 bg-amber-50 border border-amber-200 rounded p-2"><strong>「tree列挙 → ファイルごとの取得」の2段階である。</strong>対象パスを diff から作ってはいけない——変更ファイルしか取れず、<strong>却下案3と同じ状態へ静かに落ちる</strong>（しかも <span class="mono">degraded:false</span> で返るため正常に見える）。</p>
       </div>
-      <div class="pl-8 text-slate-400 text-sm">↓ 件数上限超過 / API不達</div>
+      <div class="pl-8 text-slate-400 text-sm">↓ tree列挙の失敗 / 件数上限超過 / API不達 / タイムアウト</div>
       <div class="bg-white rounded-lg shadow-sm p-5 border-l-4 border-rose-500">
         <div class="flex items-baseline gap-3 mb-2">
           <span class="text-2xl font-bold text-rose-600">段3</span>
@@ -117,15 +118,27 @@
           <tr><th class="text-left px-4 py-3">項目</th><th class="text-left px-4 py-3">既定値</th><th class="text-left px-4 py-3">扱い</th></tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
-          <tr><td class="px-4 py-3">リポジトリサイズ</td><td class="px-4 py-3 font-bold">100MB</td><td class="px-4 py-3">超えたら段2へ。<span class="mono">--max-size-kb</span> で変更可能</td></tr>
-          <tr><td class="px-4 py-3">段2の対象件数</td><td class="px-4 py-3 font-bold">50件</td><td class="px-4 py-3">超えたら段3へ（50×672ms ≒ 34秒が現実的な上限）</td></tr>
-          <tr><td class="px-4 py-3">一覧に載せる件数</td><td class="px-4 py-3 font-bold">500件</td><td class="px-4 py-3">超えたら切り詰め、実件数を報告</td></tr>
+          <tr><td class="px-4 py-3">リポジトリサイズ<br><span class="mono text-xs text-slate-500">--max-size-kb</span></td><td class="px-4 py-3 font-bold">100MB相当</td><td class="px-4 py-3">超えたら段2へ。<strong>取得できなければ「不明」として段1を試す</strong>（超過扱いにすると、権限の弱い環境で上限と無関係に縮退する）</td></tr>
+          <tr><td class="px-4 py-3">段2の取得件数<br><span class="mono text-xs text-slate-500">--max-fetch-files</span></td><td class="px-4 py-3 font-bold">50件</td><td class="px-4 py-3">超えたら段3へ（50×672ms ≒ 34秒が現実的な上限）</td></tr>
+          <tr><td class="px-4 py-3">一覧に載せる件数<br><span class="mono text-xs text-slate-500">--max-list-files</span></td><td class="px-4 py-3 font-bold">500件</td><td class="px-4 py-3">超えたら切り詰め、<span class="mono">truncated:true</span> と実件数を<strong>運ぶ</strong></td></tr>
+          <tr class="bg-amber-50"><td class="px-4 py-3">取得のタイムアウト<br><span class="mono text-xs text-slate-500">--timeout-sec</span></td><td class="px-4 py-3 font-bold">60秒</td><td class="px-4 py-3"><strong>段1・段2の両方に掛ける。</strong>これが無いと、APIがハングしたとき<strong>縮退が働かずレビュー全体が無期限に止まる</strong></td></tr>
           <tr><td class="px-4 py-3">バイナリ</td><td class="px-4 py-3 font-bold">除外</td><td class="px-4 py-3"><strong>拡張子ではなくNULバイトの有無</strong>で判定（拡張子の網羅は破綻する）</td></tr>
           <tr><td class="px-4 py-3">生成物ディレクトリ</td><td class="px-4 py-3 font-bold">除外</td><td class="px-4 py-3 mono text-xs">node_modules/ dist/ build/ target/ vendor/ __pycache__/ .venv/</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="text-xs text-amber-700 mt-2">⚠ <strong>上限値の根拠は「演習用リポジトリの想定規模を大きく超える」以上のものが無い。</strong>実運用のデータが無いまま決めた値であり、<span class="mono">【テスト】</span>で妥当性を見る。</p>
+    <p class="text-xs text-amber-700 mt-2">⚠ <strong>上限値の根拠は「演習用リポジトリの想定規模を大きく超える」以上のものが無い。</strong>実運用のデータが無いまま決めた値であり、<span class="mono">【テスト】</span>で妥当性を見る（この留保は正文mdにも記載し、送り先も明記した）。</p>
+    <div class="mt-4 bg-rose-50 border-l-4 border-rose-500 p-4 rounded">
+      <p class="text-sm leading-relaxed"><strong>除外は「一覧と読み取り対象」だけでなく、<span class="mono">mapping</span> と禁止語の材料にも及ぶ。</strong>限定すると、(1) <span class="mono">node_modules/</span> を含むリポジトリで <span class="mono">submissionOnly</span> が数千件になりプロンプトが肥大する、(2) <strong>第三者コードの識別子が禁止語から差し引かれ、正解にしか無い識別子がライブラリに含まれていればネタバレ検査を素通りする</strong>——後者は DDR 0061 の方針を無言で反転させる。除外は展開直後に一度だけ行い、以降は全コンポーネントが同じツリーを見る。</p>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-rose-500 pl-3">hunk外への指摘は「出る」だけでは届かない</h2>
+    <div class="bg-white rounded-lg shadow-sm p-5">
+      <p class="text-sm leading-relaxed mb-3">本設計が新たに生む指摘（受講者が<strong>今回変更していない</strong>ファイルに対するもの）は、<strong>1件もインライン投稿されない</strong>。<span class="mono">github_add_mr_inline_comments</span> は <span class="mono">pulls/&lt;n&gt;/files</span> の有効行でfindingsをふるい分け、外れたものを<strong>すべてサマリへ回す</strong>ためである。</p>
+      <p class="text-sm leading-relaxed"><strong>受け入れ条件1は「指摘が出る」だけでなく「届く」ところまで見ないと満たせない。</strong>そのため SKILL.md の<strong>手順8（10件上限の数え方）・手順9（サマリでの示し方）も変更対象</strong>に含めた。</p>
+    </div>
   </section>
 
   <section class="mb-10">
