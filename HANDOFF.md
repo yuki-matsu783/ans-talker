@@ -17,8 +17,8 @@ AI⇔AI/AI⇔人間の状況引継ぎメモ。常に「このブランチの現�
 - issue: #6
 - ブランチ: `feature-6-pass-submission-source-to-reviewer`
 - PR: #7（https://github.com/yuki-matsu783/ans-talker/pull/7 ）
-- push回数: 9
-- 現在のループ: 3-3〜3-4 は実施せず（ユーザー判断で敵対的レビューを実装後の3-8へ回した）。3-6を進行中
+- push回数: 10
+- 現在のループ: 3-3〜3-4 は実施せず（ユーザー判断で敵対的レビューを実装後の3-8へ回した）。3-6の実装は完了し、検証3項目が未実施
 - 追従監視: なし（ローカル。各pushとflow-id 5-2で手動確認する）
 
 | 進捗 | flow-id | ステップ | 担当 |
@@ -209,15 +209,41 @@ issue #1 の完了直後に、ユーザーからの明示的な指示を受け�
     段3 `{"stage":3,"degraded":true,…}`（`+ --max-fetch-files 0`）。GitLab・GitHub両方。
   - `cleanup` は冪等（`removed:true` → `not-found`）、**マーカー無しは消さない**（`no-marker`）。
   - 新規単体テスト `test_answer_talker_submission.sh` は `passed=30 failures=0`。全体も `NG=0`。
+- flow-id 3-6（2周目・**続き**）: **受け取り側の残り4ファイルを実装し、6ファイルすべてが揃った。**
+  結果の正文は `reports/20260822_bubbly-exploring-biscuit_受講者ソースの受け渡しの実装結果.md`
+  （視覚化は同名の `.html`）。
+  - `map.sh` に `--submission-root` と `scope`、`spoiler-check.sh` に `--submission-root` と
+    `materialScope` / `forbiddenCount` / `subtractedBySubmission` を追加した。
+  - エージェント定義の**「読んでよいもの」を実態と一致させた**（渡していない「受講者の変更ファイル
+    の中身」を書いていた欠陥の是正）。あわせて**読む手順**と `degraded` の分岐を持たせた。
+  - SKILL.md へ**手順3bを挿入**（既存の採番は繰り下げていない）。手順4・6・7・10・11・
+    読み替え表・してはいけないことも追随させた。
+  - **禁止語の回帰が消えることを両方向で実測した。** `--submission-root` なしで
+    `{"kept":2,"dropped":1,"forbiddenCount":2}` → ありで `{"kept":3,"dropped":0,"forbiddenCount":1}`。
+    **語数が1で止まっている**ため、差し引きすぎで検査が無効化する逆方向の壊れ方もしていない。
+  - **実機（GitHub PR #1）で `README.md`（hunk外のファイル）が `submissionOnly` に現れた。**
+    `scope` が `diff` → `full` へ切り替わることも確認。
+  - **GitLabでも3段すべてを再確認した。** 副産物として、**段2はファイル数に比例してAPIを呼ぶため
+    一過性の失敗に弱い**ことが実測で見えた（3回中2回、接続切断で段3へ落ちた。縮退自体は設計
+    どおりに働いた）。リトライの要否はフェーズ4か別issueで判断する。
+  - 全16スイート `NG=0`（`passed=740 failures=0`）。
+  - **踏んだ罠**: `sed` の置換文字列に書いた `\n` が改行にならず `\n` の2文字として出力された
+    （`bash -n` は通るため目視まで気づけない）。`shell-script-style.md` が結論として書いている
+    「数行程度の修正ならEdit/Writeツールで直接行う」に従ってやり直した。
 
 ## 次にやること
 
-- flow-id 3-6 の残り: **`map.sh` の `--submission-root` → `spoiler-check.sh` の
-  `--submission-root` → エージェント定義 → `SKILL.md`** の順。
+- **flow-id 3-6 の実装は完了した。残るのは検証3項目で、いずれもユーザーの許可が要る。**
+  1. **受け入れ条件1**: hunk外ファイルにのみ存在する責務について指摘が**出て、かつ届く**こと
+     （`summarized` の件数と本文まで）。→ `answer-talker-reviewer` の起動＋投稿の許可
+  2. **受け入れ条件7**: 17パターン相当の再検証（**②別解・⑤ほぼ正解で分割単位の指摘が出ない**
+     ことが**最大の回帰リスク**）。→ 同上
+  3. **受け入れ条件3**: `degraded: true` の場合の入力JSONと定義の突き合わせ。→ 同上
 - flow-id 3-8: **敵対的レビュー（フェーズ3の3/3目・最後）を実装に対して行う。**
-- **`answer-talker-reviewer` の起動にはユーザーの許可が要る**（受け入れ条件1の確認で必要）。
 - **`test-repo` を一時的に非公開へ切り替えてよいかは、必要になった時点でユーザーに確認する**
   （GitHub非公開でのアーカイブ取得の確認。**非公開リポジトリを新規に作らない**）。
+- **フェーズ4の反映候補が2件増えた**（実装結果mdに記載）。段2のリトライ、
+  空行2連続の機械的検査（`awk 'prev=="" && $0==""'`）。
 - **検証環境は使える状態で維持されている。**
   - GitLab: `root/answer-talker-answer`（正解） / `root/answer-talker-verify`（受講者、9MR）。
     **削除予定は解除済み**。

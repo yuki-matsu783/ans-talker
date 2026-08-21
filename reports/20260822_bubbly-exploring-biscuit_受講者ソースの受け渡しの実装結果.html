@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>受講者ソースの受け渡しの実装結果（issue #6）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-feature-settings: "palt"; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+<div class="max-w-6xl mx-auto px-6 py-10">
+
+  <header class="mb-10">
+    <p class="text-sm text-slate-500 mb-1">issue #6 ／ フェーズ3〈実装・テスト〉／ 2026-08-21〜22</p>
+    <h1 class="text-3xl font-bold text-slate-900">受講者ソースの受け渡しの実装結果</h1>
+    <p class="mt-2 text-slate-600">計画: <span class="mono text-sm">plans/【実装】【テスト】受講者ソースの受け渡し.md</span></p>
+    <p class="mt-1 text-slate-600">正文: <span class="mono text-sm">reports/20260822_bubbly-exploring-biscuit_受講者ソースの受け渡しの実装結果.md</span></p>
+  </header>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">結論</h2>
+    <div class="grid md:grid-cols-3 gap-4">
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
+        <p class="text-xs font-bold text-emerald-600 mb-2">1. 6ファイルすべて実装した</p>
+        <p class="text-sm leading-relaxed">設計から変えたのは1点（<span class="mono">resolve</span> へ <span class="mono">--repo</span> を追加）。理由は<strong><span class="mono">_PROVIDER_CACHE</span> が別プロセスへ継承されない</strong>ことの実測。</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
+        <p class="text-xs font-bold text-emerald-600 mb-2">2. 3段の縮退が両プロバイダで動いた</p>
+        <p class="text-sm leading-relaxed">GitHub・GitLabの<strong>実MR</strong>で段1→段2→段3を確認。段2・段3は上限値を0にして到達させた。</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-amber-500">
+        <p class="text-xs font-bold text-amber-600 mb-2">3. 検証2項目は<strong>未実施</strong></p>
+        <p class="text-sm leading-relaxed">サブエージェントの起動にユーザーの許可が要る。<strong>「実装は終わったが検証は終わっていない」</strong>状態である。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">3段の縮退（受け入れ条件2）</h2>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="bg-white rounded-lg shadow-sm p-5">
+        <p class="font-bold text-slate-900 mb-3">GitHub <span class="mono text-xs font-normal text-slate-500">yuki-matsu783/test-repo PR #1</span></p>
+        <pre class="mono text-xs bg-slate-900 text-slate-100 rounded p-3 overflow-x-auto">段1  {"stage":1,"fileCount":2,"degraded":false,
+      "reason":"stage-1"}
+段2  {"stage":2,"fileCount":2,"degraded":false,
+      "reason":"stage-2/size-over-limit"}
+段3  {"stage":3,"root":null,"degraded":true,
+      "reason":"size-over-limit"}</pre>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5">
+        <p class="font-bold text-slate-900 mb-3">GitLab <span class="mono text-xs font-normal text-slate-500">root/answer-talker-verify !1（self-hosted）</span></p>
+        <pre class="mono text-xs bg-slate-900 text-slate-100 rounded p-3 overflow-x-auto">段1  {"stage":1,"fileCount":2,"degraded":false,
+      "reason":"stage-1"}
+段2  {"stage":2,"fileCount":2,"degraded":false,
+      "reason":"stage-2/size-over-limit"}
+段3  {"stage":3,"root":null,"degraded":true,
+      "reason":"size-over-limit"}</pre>
+      </div>
+    </div>
+    <div class="mt-4 bg-amber-50 border-l-4 border-amber-400 rounded p-4">
+      <p class="text-sm"><strong>副産物: 段2は一過性の失敗に弱い。</strong> GitLabで3回中2回、段2が失敗して段3へ落ちた（原因はローカルGitLabの接続切断で、実装の欠陥ではない）。<strong>縮退そのものは設計どおりに働いた</strong>が、段2はファイル数に比例してAPIを呼ぶため、段1（1回）より一過性の失敗を踏む確率が構造的に高いことが実測で見えた。リトライの要否はフェーズ4か別issueで判断する。</p>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">hunk外のファイルが視野に入った（issue #6 の目的）</h2>
+    <div class="bg-white rounded-lg shadow-sm p-5">
+      <p class="text-sm mb-3"><span class="mono">test-repo</span> PR #1 の実データ。diffには <span class="mono">main.sh</span> しか無く、<span class="mono">README.md</span> は今回変更していない。</p>
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="border border-slate-200 rounded p-4">
+          <p class="text-xs font-bold text-slate-500 mb-2">--submission-root なし（従来）</p>
+          <pre class="mono text-xs bg-slate-100 rounded p-3 overflow-x-auto">{"scope":"diff",
+ "matched":["main.sh"],
+ "referenceOnly":["io.sh"],
+ "submissionOnly":[]}</pre>
+        </div>
+        <div class="border-2 border-emerald-400 rounded p-4">
+          <p class="text-xs font-bold text-emerald-600 mb-2">--submission-root あり（issue #6）</p>
+          <pre class="mono text-xs bg-slate-100 rounded p-3 overflow-x-auto">{"scope":"full",
+ "matched":["main.sh"],
+ "referenceOnly":["io.sh"],
+ "submissionOnly":["README.md"]}   ← hunk外</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">ネタバレ検査の回帰が消えた</h2>
+    <p class="text-sm mb-4 text-slate-600">正解に <span class="mono">read_lines</span> / <span class="mono">write_lines</span> があり、受講者は <span class="mono">read_lines</span> を<strong>diffに現れないファイル</strong>に書いている状況で測った。</p>
+    <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600">
+          <tr>
+            <th class="text-left px-4 py-2 font-bold"></th>
+            <th class="px-4 py-2 font-bold">kept</th>
+            <th class="px-4 py-2 font-bold">dropped</th>
+            <th class="px-4 py-2 font-bold mono text-xs">materialScope</th>
+            <th class="px-4 py-2 font-bold mono text-xs">forbiddenCount</th>
+            <th class="px-4 py-2 font-bold mono text-xs">subtractedBySubmission</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="border-t border-slate-200">
+            <td class="px-4 py-2">なし</td>
+            <td class="px-4 py-2 text-center">2</td>
+            <td class="px-4 py-2 text-center text-rose-600 font-bold">1</td>
+            <td class="px-4 py-2 text-center mono text-xs">diff</td>
+            <td class="px-4 py-2 text-center">2</td>
+            <td class="px-4 py-2 text-center">0</td>
+          </tr>
+          <tr class="border-t border-slate-200 bg-emerald-50">
+            <td class="px-4 py-2 font-bold">あり</td>
+            <td class="px-4 py-2 text-center font-bold text-emerald-600">3</td>
+            <td class="px-4 py-2 text-center">0</td>
+            <td class="px-4 py-2 text-center mono text-xs">full</td>
+            <td class="px-4 py-2 text-center font-bold">1</td>
+            <td class="px-4 py-2 text-center">1</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-4 grid md:grid-cols-2 gap-4">
+      <div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-emerald-500">
+        <p class="text-sm"><strong><span class="mono">forbiddenCount</span> が 2 → 1 で止まっている点が重要。</strong> 受講者が書いていない <span class="mono">write_lines</span> は禁止語のまま残っており、「差し引きすぎて検査が実質無効になる」逆方向の壊れ方をしていない。</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-emerald-500">
+        <p class="text-sm"><strong>検出力も落ちていない。</strong> 実データ（<span class="mono">test-repo</span>）で、正解にしか無い識別子を含む指摘は <span class="mono">--submission-root</span> を渡しても<strong>落ちた</strong>。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">単体テスト</h2>
+    <div class="bg-white rounded-lg shadow-sm p-5">
+      <p class="text-lg font-bold text-emerald-600 mb-3">全16スイート NG=0（合計 passed=740 failures=0）</p>
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600">
+          <tr><th class="text-left px-4 py-2">スイート</th><th class="px-4 py-2">変更前</th><th class="px-4 py-2">変更後</th></tr>
+        </thead>
+        <tbody>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono text-xs">test_answer_talker_submission.sh（新規）</td><td class="px-4 py-2 text-center">—</td><td class="px-4 py-2 text-center font-bold">30</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono text-xs">test_answer_talker_map.sh</td><td class="px-4 py-2 text-center">16</td><td class="px-4 py-2 text-center font-bold">27</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono text-xs">test_answer_talker_spoiler_check.sh</td><td class="px-4 py-2 text-center">21</td><td class="px-4 py-2 text-center font-bold">32</td></tr>
+        </tbody>
+      </table>
+      <p class="text-sm mt-3 text-slate-600">新規のアサーションは<strong>「渡さないと落ちる／渡すと残る」を両側から</strong>押さえている。片側だけだと「常に落とさない実装」も合格してしまうため。</p>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-amber-500 pl-3">未実施の項目（「確かめられなかった」ではなく「まだ確かめていない」）</h2>
+    <div class="space-y-3">
+      <div class="bg-amber-50 border-l-4 border-amber-400 rounded p-4">
+        <p class="font-bold text-sm mb-1">受け入れ条件1: hunk外ファイルに基づく指摘が<strong>出て、かつ届く</strong>こと</p>
+        <p class="text-sm text-slate-700">必要なもの: <span class="mono">answer-talker-reviewer</span> の起動許可＋MRへの投稿許可。<span class="mono">summarized</span> の件数と本文まで見る。</p>
+      </div>
+      <div class="bg-amber-50 border-l-4 border-amber-400 rounded p-4">
+        <p class="font-bold text-sm mb-1">受け入れ条件7: 17パターン相当の再検証</p>
+        <p class="text-sm text-slate-700">とくに<strong>②別解・⑤ほぼ正解で分割単位の指摘が出ない</strong>こと。<strong>最大の回帰リスク。</strong></p>
+      </div>
+      <div class="bg-amber-50 border-l-4 border-amber-400 rounded p-4">
+        <p class="font-bold text-sm mb-1">受け入れ条件3: <span class="mono">degraded: true</span> の場合の突き合わせ</p>
+        <p class="text-sm text-slate-700">段3を人工的に作ってサブエージェントを起動し、入力JSONと定義の記述を照合する。</p>
+      </div>
+    </div>
+    <p class="text-sm mt-4 text-slate-700"><strong>受け入れ条件1と7は、今回の変更の中心に対する検証である。</strong> 実装が終わったことをもって「受け入れ条件を満たした」とは言えない。</p>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-slate-400 pl-3">設計で未確認のまま残した3項目の扱い</h2>
+    <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600"><tr><th class="text-left px-4 py-2">項目</th><th class="text-left px-4 py-2">結果</th></tr></thead>
+        <tbody>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2">GitHub非公開リポジトリでのアーカイブ取得</td><td class="px-4 py-2"><span class="text-rose-600 font-bold">未確認。</span> <span class="mono text-xs">test-repo</span> は公開。一時的に非公開へ切り替えてよいかをユーザーへ確認していない（<strong>非公開リポジトリを新規に作らない</strong>制約がある）</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2">サイズが取得できない環境での挙動</td><td class="px-4 py-2"><span class="text-amber-600 font-bold">コード上は確認済み・実環境では未確認。</span> サイズを返さないGitLabインスタンスが手元に無い</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2">上限値（100MB・50件・500件・60秒）の妥当性</td><td class="px-4 py-2"><span class="text-rose-600 font-bold">未確認。</span> 今回の検証対象（2ファイル）では一度も上限に触れていない。<strong>「妥当だと確認した」とは書けない</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="text-sm text-slate-500 border-t border-slate-200 pt-6">
+    <p>結果の正文は <span class="mono">reports/20260822_bubbly-exploring-biscuit_受講者ソースの受け渡しの実装結果.md</span>。本ファイルはその視覚化である。</p>
+  </footer>
+
+</div>
+</body>
+</html>
