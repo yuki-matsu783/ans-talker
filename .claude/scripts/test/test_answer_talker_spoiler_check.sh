@@ -139,5 +139,72 @@ assert_eq "12: 複数の禁止語をすべて返す" \
 assert_eq "12b: 同じ禁止語が2回出ても1回だけ返す" \
   "hit:FilterLines" "$(leaked 'FilterLines は FilterLines として切る')"
 
+# --- 13. --submission-root で材料が広がること（mainをサブプロセスで実行） ---
+#
+# **これは issue #6 の必須の追随であり、任意の改善ではない。** 差し引く材料が差分だけだと、
+# 「hunkに現れない受講者ファイルに基づく指摘」だけが選択的に drop される（下の13aで実測する）。
+# ファイルI/Oのみで、API呼び出しは伴わない。
+
+sp_tmp="$(mktemp -d)"
+mkdir -p "$sp_tmp/ref" "$sp_tmp/sub"
+# 正解側に read_lines / write_lines がある。
+printf 'read_lines() { cat "$1"; }\nwrite_lines() { tee "$1"; }\n' > "$sp_tmp/ref/io.sh"
+# **受講者も read_lines を自分で書いているが、今回のdiffには現れない**（issue #6 が扱う形）。
+printf 'read_lines() { cat "$1"; }\n' > "$sp_tmp/sub/helper.sh"
+printf 'main() { echo hi; }\n'        > "$sp_tmp/sub/main.sh"
+cat > "$sp_tmp/diff.json" <<'EOF'
+{"files":[{"path":"main.sh","status":"modified","patch":"@@ -1 +1 @@\n-main() { echo x; }\n+main() { echo hi; }\n"}]}
+EOF
+cat > "$sp_tmp/findings.json" <<'EOF'
+{"findings":[
+ {"title":"読み込みの責務","body":"read_lines に読み込みを寄せているが main.sh からも参照している","path":"main.sh","line":1},
+ {"title":"命名の一貫性","body":"main の中で処理を直書きしている","path":"main.sh","line":1},
+ {"title":"層の分離","body":"入出力と処理が同じ関数に同居している","path":"main.sh","line":1}
+]}
+EOF
+
+sp_run() { # $1=出力先 以降=追加引数
+  local out="$1"; shift
+  bash "$repo_root/.claude/scripts/src/answer-talker-spoiler-check.sh" \
+    --findings "$sp_tmp/findings.json" --reference-root "$sp_tmp/ref" \
+    --diff "$sp_tmp/diff.json" --out "$out" "$@"
+}
+
+sp_before="$(sp_run "$sp_tmp/out1.json")"
+assert_eq "13a: 渡さないと、hunk外ファイルに基づく指摘が落ちる" \
+  "1" "$(printf '%s' "$sp_before" | jq -r '.dropped')"
+assert_eq "13a: 落ちた語は受講者が自分で書いている語である" \
+  "read_lines" "$(printf '%s' "$sp_before" | jq -r '.drops[0].words[0]')"
+assert_eq "13a: materialScopeはdiff" \
+  "diff" "$(printf '%s' "$sp_before" | jq -r '.materialScope')"
+
+sp_after="$(sp_run "$sp_tmp/out2.json" --submission-root "$sp_tmp/sub")"
+assert_eq "13b: 渡すと落ちなくなる" \
+  "0" "$(printf '%s' "$sp_after" | jq -r '.dropped')"
+assert_eq "13b: 3件すべて残る" \
+  "3" "$(printf '%s' "$sp_after" | jq -r '.kept')"
+assert_eq "13b: materialScopeはfull" \
+  "full" "$(printf '%s' "$sp_after" | jq -r '.materialScope')"
+
+# **禁止語が空になっていないこと。** 差し引きすぎて検査が実質無効になる逆方向の壊れ方を
+# 検出する（`dropped: 0` が「転記が無かった」のか「禁止語が空だった」のかを区別する）。
+assert_eq "13c: 受講者に無い正解の語は禁止語のまま残る" \
+  "1" "$(printf '%s' "$sp_after" | jq -r '.forbiddenCount')"
+assert_eq "13c: 渡す前の禁止語は2語" \
+  "2" "$(printf '%s' "$sp_before" | jq -r '.forbiddenCount')"
+assert_eq "13c: 受講者ソースが差し引いた語数が出る" \
+  "1" "$(printf '%s' "$sp_after" | jq -r '.subtractedBySubmission')"
+assert_eq "13c: 渡さないと差し引きは0" \
+  "0" "$(printf '%s' "$sp_before" | jq -r '.subtractedBySubmission')"
+
+# **存在しないパスを黙って無視しない**（無視すると materialScope が diff へ逆戻りする）。
+if sp_run "$sp_tmp/out3.json" --submission-root "$sp_tmp/nope" >/dev/null 2>&1; then
+  sp_status=0
+else
+  sp_status=$?
+fi
+assert_eq "13d: 存在しない--submission-rootは終了コード2" "2" "$sp_status"
+
+rm -rf "$sp_tmp"
 echo "passed=$passed failures=$failures"
 [[ "$failures" -eq 0 ]]
