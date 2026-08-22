@@ -11,8 +11,7 @@
 #   answer-talker-submission.sh cleanup --tmpdir <パス>
 #     → {"removed":true|false,"reason":"…"}
 #
-# 設計上の要点（reports/…受講者ソースの受け渡しの設計結果.md。フェーズ4で
-# .claude/docs/spec/answer-talker.md へ反映する）:
+# 設計上の要点（issue #6。正史は .claude/docs/spec/answer-talker.md — フェーズ4で反映する）:
 #
 #   - **3段の縮退**。段1=アーカイブ1回、段2=tree列挙+ファイル単位、段3=hunkのみ。
 #     `git clone` は採らない（`.git` の除去と資格情報供給という2つの追加作業が要るため）。
@@ -80,9 +79,15 @@ prune_submission_tree() {
   done
   # バイナリを消す。`grep -rlI` がテキストファイルを列挙するので、その補集合を消す
   # （ファイルごとに判定コマンドを起動しない）。
+  #
+  # **空ファイルを補集合に入れないこと**（issue #6）。`grep` は1行も無いファイルにマッチ
+  # しないため、素朴に補集合を取ると **0バイトのファイルがバイナリ扱いで削除される**。
+  # `__init__.py` `.gitkeep` 空の設定ファイル等は演習リポジトリに普通に存在する。消すと
+  # `mapping.referenceOnly` に正解側の同名ファイルが残り、**実在するファイルについて
+  # 「作られていない」という指摘が出る**。`! -empty` で走査対象から外す。
   local text_list all_list
   text_list="$(grep -rlI -- '' "$root" 2>/dev/null | sort)"
-  all_list="$(find "$root" -type f | sort)"
+  all_list="$(find "$root" -type f ! -empty | sort)"
   comm -13 <(printf '%s\n' "$text_list") <(printf '%s\n' "$all_list") \
     | while IFS= read -r f; do
         [ -n "$f" ] && rm -f -- "$f"
@@ -97,6 +102,11 @@ prune_submission_tree() {
 # ファイル数に比例して外部コマンドを起動することになる
 # （.claude/rules/shell-script-style.md「外部プロセス起動のコスト」: git bashでは約95ms/回）。
 # **拡張子では判定しない**（網羅は破綻する）。`grep -I` はNULバイトの有無で判断する。
+#
+# **空ファイルは `grep` にマッチしないため `find ... -empty` で足す**（issue #6）。
+# `prune_submission_tree` と判定を揃えておかないと、ツリーには残っているのに一覧に載らない
+# ファイルが生まれる。エージェント定義は「一覧に無いものを探しに行かない」と指示しているため、
+# 一覧から落ちたファイルは確認そのものが行われない。
 list_submission_files() {
   local root="$1" rel
   while IFS= read -r file; do
@@ -104,7 +114,7 @@ list_submission_files() {
     rel="${file#"$root"/}"
     is_excluded_path "$rel" && continue
     printf '%s\n' "$rel"
-  done < <(grep -rlI -- '' "$root" 2>/dev/null | sort)
+  done < <({ grep -rlI -- '' "$root" 2>/dev/null; find "$root" -type f -empty; } | sort -u)
 }
 
 # 段1: アーカイブ1回で取得して展開する。成功したら 0、失敗したら 1。
@@ -124,6 +134,11 @@ fetch_stage1() {
   # `--strip-components=1` でアーカイブ内のprefix（<owner>-<repo>-<sha7>/）を剥がす。
   # `--force-local` が無いと、Windows版tarがドライブレターをホスト名と解釈して失敗する。
   if ! tar xzf "$archive" -C "$tmpdir/source" --strip-components=1 --force-local 2>/dev/null; then
+    # **途中まで展開されたツリーを残さない**（issue #6）。段2は同じ `$tmpdir/source` へ
+    # 書き足すため、残すと「段2が取得していない、途中まで書かれたファイル」が混ざったまま
+    # `stage:2, degraded:false` で返る。段2は必ず空のディレクトリから始める。
+    rm -rf "$tmpdir/source"
+    rm -f "$archive"
     return 1
   fi
   rm -f "$archive"
@@ -137,6 +152,11 @@ fetch_stage2() {
 
   tree="$(get_repo_tree "$ref" 2>/dev/null)" || return 1
   [ -n "$tree" ] || return 1
+
+  # **一覧が全件でないなら段2を成功させない**（issue #6）。欠けたツリーのまま成功すると
+  # `degraded:false` で「受講者リポジトリの全ファイル」として渡り、**実在するファイルについて
+  # 「無い」という指摘が出る**。段3（hunkのみ）へ縮退したほうが、報告上も正直になる。
+  [ "$(printf '%s' "$tree" | jq -r '.truncated' | tr -d '\r')" = 'false' ] || return 1
 
   # 除外を先に適用してから件数を数える（生成物で件数上限を食い潰さない）
   local -a paths=()
@@ -237,7 +257,13 @@ resolve_main() {
 
   if [ "$stage" -eq 0 ]; then
     rm -rf "$tmpdir"
-    emit_degraded "${size_reason:-fetch-failed}"
+    # **縮退の直接原因を主にする**（issue #6）。`size_reason` をそのまま返すと、段1・段2の
+    # 両方が失敗しても `reason: "size-unknown"` になり、SKILL.md 手順11がそのまま人間へ
+    # 報告する文字列が「サイズ不明」になって調査が別方向を向く。`size-unknown` は縮退の理由
+    # ではなく段1を試した経緯にすぎない。成功経路の `stage-2/size-over-limit` と同じ併記形式に揃える。
+    local fail_reason='fetch-failed'
+    [ -n "$size_reason" ] && fail_reason="${fail_reason}/${size_reason}"
+    emit_degraded "$fail_reason"
     return 0
   fi
 
@@ -259,13 +285,25 @@ resolve_main() {
   local reason="stage-${stage}"
   [ -n "$size_reason" ] && reason="${reason}/${size_reason}"
 
-  # 一覧は件数が可変のため、`--args` で位置引数として渡す（`--` を必ず置く。
-  # ハイフンで始まるパスをjqがオプションと解釈しないように）
+  # **一覧を `--args` の位置引数で渡さない**（issue #6）。件数（最大 `--max-list-files`＝既定500）
+  # × パス長に比例してコマンドライン長が伸び、Windowsの上限（約32KB）に達すると
+  # `Argument list too long` で**jqの起動自体が失敗する**（実測: 500件・平均パス長64文字で到達。
+  # `src/main/java/...` のような構成では珍しくない）。`.claude/rules/shell-script-style.md`
+  # 「JSON操作」が禁じている形そのものである。
+  #
+  # **壊れ方が悪い。** 失敗するのは展開が終わった後なので、`set -e` で落ちて **stdoutへ何も
+  # 出ない**。呼び出し側は `tmpdir` を受け取れず `cleanup --tmpdir` へ渡す値を失い、
+  # 「残骸が実行のたびに増える」——このファイル冒頭が避けると宣言している状態になる。
+  # 一時ファイルへ書き出し `--rawfile` で読ませることで、件数に依存しない形にする。
+  local list_file="$tmpdir/filelist.txt"
+  printf '%s\n' "${files[@]}" > "$list_file"
   jq -nc --arg root "$tmpdir/source" --arg tmpdir "$tmpdir" --argjson stage "$stage" \
-    --argjson total "$total" --argjson truncated "$truncated" --arg reason "$reason" --args \
+    --argjson total "$total" --argjson truncated "$truncated" --arg reason "$reason" \
+    --rawfile listRaw "$list_file" \
     '{stage: $stage, root: $root, tmpdir: $tmpdir, fileCount: $total,
-      files: $ARGS.positional, truncated: $truncated, degraded: false, reason: $reason}' \
-    -- "${files[@]}"
+      files: ($listRaw | rtrimstr("\n") | if . == "" then [] else split("\n") end),
+      truncated: $truncated, degraded: false, reason: $reason}'
+  rm -f "$list_file"
 }
 
 cleanup_main() {

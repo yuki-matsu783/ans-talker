@@ -350,6 +350,11 @@ mcp_tool_hint() {
     add_mr_inline_comments) printf 'mcp__github__pull_request_review_write (method="create" → 各指摘を "add_comment_to_pending_review" → "submit_pending"。owner, repo, pullNumber, path, line, side, body)\n' ;;
     add_issue_comment) printf 'mcp__github__add_issue_comment (owner, repo, issue_number=通知先issue番号, body=ファイル内容)\n' ;;
     get_mr_changed_files) printf 'mcp__github__pull_request_read (method="get_files" で変更ファイル、method="get" で base/head/headSha。owner, repo, pullNumber)\n' ;;
+    get_mr_head_repo) printf 'mcp__github__pull_request_read (method="get", owner, repo, pullNumber → head.repo.full_name)\n' ;;
+    get_repo_size_kb) printf 'mcp__github__search_repositories (query="repo:<owner>/<repo>", 結果の size がKB単位) ※取得できなければ「不明」として扱う\n' ;;
+    get_repo_tree) printf 'mcp__github__get_file_contents (owner, repo, path="/", ref) を再帰的にたどる。truncated 相当は得られないため false として扱う\n' ;;
+    get_repo_file) printf 'mcp__github__get_file_contents (owner, repo, path, ref)\n' ;;
+    fetch_repo_archive) printf '対応するMCPツールは無い（アーカイブ取得は段1のみの手段のため、MCP経路では段1を飛ばして段2へ縮退する）\n' ;;
     *) printf '対応するMCPツールは .claude/skills/issue-mr-flow/SKILL.md の対応表を参照\n' ;;
   esac
 }
@@ -822,30 +827,43 @@ valid_ranges_from_patches() {
 #     割り当てる。新規追加ファイルはhunkが `@@ -0,0 +1,N @@` になるため、これは1行目に一致する。
 #   - 有効行を持たないファイル（diffに現れない・`patch` が省略された）の指摘は summary へ回す。
 #     特別扱いのコードは書かず、有効行が空であることから自動的にそうなる。
-#   - **`old_line` を持つfinding（削除行への指摘）はそのまま post へ通す。** 範囲マップは
-#     新ファイル側しか持たないため判定できず、純粋な削除hunkのファイルでは新側の有効行が
-#     そもそも空になる。ここでsummaryへ落とすと、GitLabが受け付けられる指摘まで捨てることになる。
+#   - **`old_line` を持つfinding（削除行への指摘）の扱いは、第2引数 `allow_old_line` で
+#     切り替える。** 範囲マップは新ファイル側しか持たないため `old_line` は判定できず、
+#     「判定できないものをどう倒すか」の答えがプロバイダで正反対になるためである（issue #6）。
+#
+#     | `allow_old_line` | 呼び出し元 | 挙動 |
+#     |---|---|---|
+#     | `true` | GitLab | postへ通す。`position` は `old_line` だけでも成立する。ただし新側の `line` が有効行に無ければ**その `line` を落とし**、`old_line` だけで位置を決めさせる（両方入れると `line_code` が不正になる） |
+#     | `false`（既定） | GitHub | 新側の有効行が決まらない限り**summaryへ回す** |
+#
+#     GitHubのレビューAPIは `old_line` を受け付けず、`line` を省くと `line: null` の
+#     コメントになる。**GitHubの投稿は原子的で、1件でも不正な行が混ざるとそのMRの
+#     インライン投稿が全件失敗する**ため、通してはならない。`.claude/agents/*.md` は
+#     「削除行は `old_line` のみ」と指示しているので、これは例外ではなく通常運転で出る。
 #
 # **`path` / `line` / `old_line` しか見ないためプロバイダに依存しない。** GitHub固有の
 # `side` の既定値付与は `github_build_review_payload` が行う（GitLabの `position` は
 # `side` を持たない）。
 filter_findings_by_valid_lines() {
-  local ranges_file="$1"
-  jq -c --slurpfile rangesArr "$ranges_file" '
+  local ranges_file="$1" allow_old_line="${2:-false}"
+  jq -c --slurpfile rangesArr "$ranges_file" --argjson allowOldLine "$allow_old_line" '
     ($rangesArr[0] // {}) as $ranges
     | def in_ranges($lines; $n): any($lines[]; .[0] <= $n and $n <= .[1]);
       def resolve($f):
-        if ($f.old_line // null) != null then $f
-        else
-          ($ranges[$f.path] // []) as $lines
-          | if ($lines | length) == 0 then null
-            elif ($f.line // null) == null
-              then ($f + {line: ([$lines[][0]] | min)})
-            elif in_ranges($lines; $f.line)
-              then $f
-            else null
+        ($ranges[$f.path] // []) as $lines
+        | (($f.line // null) != null and ($lines | length) > 0
+           and in_ranges($lines; $f.line)) as $lineOk
+        | if ($f.old_line // null) != null then
+            if $allowOldLine then
+              (if ($f.line // null) == null or $lineOk then $f else ($f | del(.line)) end)
+            else
+              (if $lineOk then $f else null end)
             end
-        end;
+          elif ($lines | length) == 0 then null
+          elif ($f.line // null) == null then ($f + {line: ([$lines[][0]] | min)})
+          elif $lineOk then $f
+          else null
+          end;
       reduce (.findings // [])[] as $f ({post: [], summary: []};
         (resolve($f)) as $r
         | if $r == null then .summary += [$f] else .post += [$r] end)
@@ -990,8 +1008,7 @@ get_mr_changed_files() {
 # ---------------------------------------------------------------------------
 # 受講者ソースの取得（issue #6）
 #
-# 設計: reports/…受講者ソースの受け渡しの設計結果.md（フェーズ4で
-# .claude/docs/spec/answer-talker.md へ反映する）
+# 設計の正史は .claude/docs/spec/answer-talker.md（フェーズ4で反映する）
 #
 # 3段の縮退を前提にした部品を提供する。段の判断そのものは
 # `.claude/scripts/src/answer-talker-submission.sh` が行い、この層は「取れるか／取る」だけを担う。

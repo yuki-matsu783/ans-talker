@@ -361,8 +361,7 @@ github_get_mr_changed_files() {
       ' | tr -d '\r'
 }
 
-# 受講者ソースの取得（issue #6）。設計:
-# reports/…受講者ソースの受け渡しの設計結果.md → 反映先は .claude/docs/spec/answer-talker.md
+# 受講者ソースの取得（issue #6）。設計の正史は .claude/docs/spec/answer-talker.md
 #
 # PRのhead側リポジトリを `owner/repo` 形式で返す（フォークから出されたPRに対応するため）。
 #

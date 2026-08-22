@@ -400,7 +400,9 @@ gitlab_add_mr_inline_comments() {
   if glab api "projects/:id/merge_requests/${mr_number}/diffs" --paginate > "$tmpdir/diffs.json" 2>/dev/null \
      && [ -s "$tmpdir/diffs.json" ] \
      && gitlab_valid_ranges_from_diffs_json < "$tmpdir/diffs.json" > "$tmpdir/ranges.json"; then
-    filter_findings_by_valid_lines "$tmpdir/ranges.json" < "$findings_file" > "$tmpdir/filtered.json"
+    # 第2引数の `true` は「`old_line` を持つ指摘をpostへ通す」。GitLabの `position` は
+    # `old_line` だけでも成立するため（GitHubは受け付けないので既定の `false` のまま）。
+    filter_findings_by_valid_lines "$tmpdir/ranges.json" true < "$findings_file" > "$tmpdir/filtered.json"
   else
     printf 'gitlab_add_mr_inline_comments: MR %s の差分を取得できないため、有効行の判定を行わず全件の投稿を試みます\n' \
       "$mr_number" >&2
@@ -539,8 +541,14 @@ gitlab_get_repo_size_kb() {
 #   → {"truncated":bool,"files":[{"path":"…","size":N|null}]}
 #
 # **GitLabのtree APIは `truncated` も `size` も持たない**（issue #6の調査で確認）。
-# `truncated` はページングが打ち切られたかから自前で算出し、`size` は常に null にする
-# （キー集合は揃えるが、値の有無は揃わないことをspecへ明記する）。
+# `size` は常に null にする（キー集合は揃えるが、値の有無は揃わないことをspecへ明記する）。
+#
+# **`truncated` は常に `false` を返す。「算出していない」のではなく、算出する余地が無い。**
+# `--paginate` は全ページを取り切るか、途中で失敗して非0で終わるかのどちらかであり、
+# 「成功したが打ち切られた」という中間状態を返さない。失敗した場合はこの関数自体が
+# 非0で終わるため、呼び出し側（`fetch_stage2`）が段2の失敗として扱う。
+# GitHub側は tree API が返す**本物の** `truncated` を詰めるため、値の意味はプロバイダで
+# 揃っている（「この一覧は全件か」）。呼び出し側はどちらでも同じように参照してよい。
 gitlab_get_repo_tree() {
   local ref="$1"
   timeout "${ATR_HTTP_TIMEOUT_SEC:-60}" glab api "projects/:id/repository/tree?ref=${ref}&recursive=true&per_page=100" --paginate \
