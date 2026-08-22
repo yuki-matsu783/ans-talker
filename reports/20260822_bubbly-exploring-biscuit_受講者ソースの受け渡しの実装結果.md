@@ -1,19 +1,20 @@
 ---
 title: 受講者ソースの受け渡しの実装結果
 type: report
-description: issue #6 の実装・検証結果。6ファイルへ受講者ソースの取得・受け渡しを実装し、3段の縮退と10パターンの実機検証をGitHub・GitLab両方で完了した。hunk外ファイルの指摘は差分のみなら0件・全体を渡すと4件。単体テストは全16スイート NG=0。
+description: issue #6 の実装・検証結果。6ファイルへ受講者ソースの取得・受け渡しを実装し、3段の縮退と10パターンの実機検証をGitHub・GitLab両方で完了した。hunk外ファイルの指摘は差分のみなら0件・全体を渡すと4件。レビュー対応でline無し指摘のプロバイダ差もGitLab側の有効行算出で解消した。単体テストは全16スイート NG=0。
 tags: [answer-talker, 実装結果, report]
-keywords: [submission, 縮退, degraded, materialScope, forbiddenCount, subtractedBySubmission, scope, 単体テスト, 実機確認, 受け入れ条件, 対照実験, 別解]
+keywords: [submission, 縮退, degraded, materialScope, forbiddenCount, subtractedBySubmission, scope, 単体テスト, 実機確認, 受け入れ条件, 対照実験, 別解, 有効行, プロバイダ差]
 ---
 
 # 実装結果: 受講者ソースの受け渡し（issue #6・フェーズ3の2周目）
 
 - 計画: `plans/【実装】【テスト】受講者ソースの受け渡し.md`
 - 前提の設計: `reports/20260821_bubbly-exploring-biscuit_受講者ソースの受け渡しの設計結果.md`
-- 実施日: 2026-08-21〜2026-08-22
-- worklog: `worklog/…_push1.md`（取得側）・`worklog/…_push2.md`（受け取り側）
+- 実施日: 2026-08-21〜2026-08-23
+- worklog: `worklog/…_push1.md`（取得側）・`worklog/…_push2.md`（受け取り側）・
+  `worklog/…_push3.md`（検証）・`worklog/…_push4.md`（レビュー対応）
 
-## 結論（3行）
+## 結論（4行）
 
 1. **6ファイルすべてを実装した。** 設計から変えたのは1点（`resolve` へ `--repo` を追加）で、
    理由は「`_PROVIDER_CACHE` はシェル変数であり別プロセスへ継承されない」ことの実測。
@@ -21,6 +22,10 @@ keywords: [submission, 縮退, degraded, materialScope, forbiddenCount, subtract
 3. **サブエージェントを起動する検証3項目（受け入れ条件1・3・7）も完了した。**
    **hunk外ファイルにのみ現れる指摘が、差分だけなら0件・受講者ソース全体を渡すと4件**という
    対照実験で効果を確認し、10パターンの再検証で回帰が無いことも確かめた。
+4. **flow-id 3-9 のレビュー対応として、`line` 無し指摘のプロバイダ差を実装で解消した**（検証10）。
+   hunkヘッダの解釈を `Provider.sh` の共通純粋関数へ寄せ、GitLabにも有効行の算出を持たせた。
+   実機で `posted:0→1` を確認している。**issue #1 から存在した欠陥であり、issue #6 が
+   作ったものではない。**
 
 ## 実装した6ファイル
 
@@ -121,14 +126,14 @@ GitLab の段2を測る過程で、**3回中2回、段2が失敗して段3へ落
 
 ## 検証4: 単体テスト
 
-**全16スイート `NG=0`（合計 `passed=742 failures=0`）。**
+**全16スイート `NG=0`（合計 `passed=750 failures=0`）。**
 
 | スイート | 変更前 | 変更後 |
 |---|---|---|
 | `test_answer_talker_submission.sh`（新規） | — | 30 |
 | `test_answer_talker_map.sh` | 16 | 27 |
 | `test_answer_talker_spoiler_check.sh` | 21 | 32 |
-| `test_vcs_provider.sh` | （既存） | 143 |
+| `test_vcs_provider.sh` | 143 | 151（検証10の +8 を含む） |
 
 新規のアサーションは、いずれも**「渡さないと落ちる／渡すと残る」を両側から押さえる**形にした。
 片側だけだと「常に落とさない実装」も合格してしまうため。終了コードの検査は
@@ -259,6 +264,76 @@ hunk外の `README.md`（リネーム後も `main.sh` を案内したまま）�
 | **URL（shallow clone）** | `{"kind":"url","cleanup":true}`。履歴の深さ1（shallowになっている）。`cleanup` で削除されることも確認 |
 | ローカルgit | **未実施**（`kind` の判定は「ディレクトリか否か」であり、`.git` の有無で経路が分かれないため、素のディレクトリと同一経路になる） |
 
+## 検証10: `line` 無し指摘のプロバイダ差を解消した（flow-id 3-9 のレビュー対応）— **解消**
+
+「記述を直すか実装を揃えるか」という判断について、レビューで**「実装をそろえる」**という指示を
+受けた。GitLab側に有効行の算出を実装した。
+
+### 何を変えたか
+
+**hunkヘッダの解釈は1箇所にまとめ、APIの返却形の違いだけを各プロバイダが吸収する形にした。**
+GitHub側にあったロジックをそのままGitLabへ写すと、同じ正規表現が2箇所に増えて片方だけが直る
+余地を残すためである。
+
+| ファイル | 変更 |
+|---|---|
+| `Provider.sh` | **`valid_ranges_from_patches`**（`[{path, patch}]` → `{path: [[start,end],…]}`）と **`filter_findings_by_valid_lines`**（findings → `{post, summary}`）を新設。どちらも `path`/`line`/`old_line` しか見ないプロバイダ非依存の純粋関数 |
+| `Github.sh` | `github_valid_ranges_from_files_json` を `filename`/`patch` → `path`/`patch` の正規化だけに縮小し、共通関数へ委譲。`github_filter_findings_by_valid_lines` は削除し共通関数へ統合 |
+| `Gitlab.sh` | **`gitlab_valid_ranges_from_diffs_json`** を新設（`new_path`/`diff` の正規化＋`jq -s` でページ束ね）。`gitlab_add_mr_inline_comments` が投稿前に振り分けるようにした |
+
+**`side`（"RIGHT"）の既定値付与は共通関数から外し、`github_build_review_payload` へ寄せた。**
+GitLabの `position` は `side` を持たないため、共通の判定ロジックへ残すとGitHub固有のキーが
+漏れ出す。
+
+### 壊さないために置いた分岐が2つある
+
+1. **差分を取得できなかった場合は、振り分けを行わず全件の投稿を試みる**（従来の挙動）。
+   ここで空の範囲マップを渡すと、**全件が「有効行なし」と判定されてサマリへ落ちる**。
+   ローカルGitLabの接続断は実測で頻発しており（検証で新たに判明したこと 3）、この分岐は
+   例外処理ではなく通常経路として扱う必要がある。
+2. **`old_line` を持つ指摘（削除行への指摘）は判定せず投稿へ通す。** 範囲マップは新ファイル側
+   しか持たないため判定できず、純粋な削除hunkのファイルでは新側の有効行がそもそも空になる。
+   ここでサマリへ落とすと、**GitLabが受け付けられる指摘まで捨てる**ことになる。
+
+なお、振り分けたあとも**POST失敗時のサマリ行きは残している**。GitLabは失敗理由を区別して
+返さないため、有効行では拾えない理由（一過性の接続断など）が残るからである。
+
+### 実機で確認した（MR !8。`filter.sh` の有効行は 1〜4）
+
+**同じMR・同じ指摘で修正前後を比べた。**
+
+| | `line` 無し・diff内（`filter.sh`） | `line` 無し・diff外（`main.sh`） | 有効行外（`filter.sh:99`） | 結果 |
+|---|---|---|---|---|
+| **修正前** | POSTが `400 ... position is incomplete` で失敗 | 同左 | 同左 | `posted:0, summarized:3` |
+| **修正後** | **`new_line: 1` へ寄せてインライン投稿** | サマリ | サマリ | **`posted:1, summarized:2`** |
+
+修正前の失敗は、`gitlab_build_discussion_body` の出力を直接POSTして再現した。返ってきたのは
+`400 Bad request - Note {:line_code=>["can't be blank", "must be a valid line code"],
+:position=>["is incomplete"]}` である。**「有効行を持つファイルなのに、行が無いというだけで
+拒否されていた」**ことがこれで確定した（!7 での実測は `patch` が空という別の理由も重なって
+いたため、原因の切り分けとしては弱かった）。
+
+投稿後は `discussions` APIで `new_path: "filter.sh"` / `new_line: 1` を確認した。
+**検証のために作った2スレッドは削除済み**（`【検証用】` を含むスレッドの残存 0件）。
+
+### 過剰修正になっていないことも確認した
+
+- **MR !7（リネームのみ・`patch` が空）** — 有効行マップは `{"cli.sh":[]}` で、指摘2件は
+  `post:0, summary:2`。**引き続きサマリへ回る。** 有効行が存在しないのだから正しい。
+- **GitHub（このPR #7 の実データ）** — 投稿はせず組み立てまで実行。`line` 無しの指摘は
+  最小有効行（14）へ寄り、diff外はサマリ、`side` は `RIGHT` が付いた。**挙動は変わっていない。**
+- **単体テストは全16スイート `failures=0`**（`passed=750`。+8件）。新規は、GitLab側の範囲算出5件・
+  `old_line` の素通し2件・`side` の既定値をペイロード側で検査する1件。
+  **「GitHub版とGitLab版が同じdiffに対して同じ範囲マップを返す」検査も入れた**（揃えたこと
+  そのものを固定するため）。
+
+### スコープの扱い
+
+**これは issue #1 から存在する欠陥であり、issue #6 が作ったものではない。** 別issueへ切り出す
+選択肢もあったが、レビューでの指示は「実装をそろえる」であり、対象が `add_mr_inline_comments`
+という**このissueで実際に使い倒した経路**であること、変更が3ファイル・純粋関数中心で
+テストしやすいことから、このMRに含めた。
+
 ## 検証で新たに判明したこと
 
 ### 1. `line` を持たない指摘の扱いが、プロバイダで異なる
@@ -282,7 +357,9 @@ GitLabのAPIは行の無いテキスト位置を受け付けないため投稿�
 （`gitlab_add_mr_inline_comments` は「投稿を試して失敗したらサマリ」という作りである）。
 
 **issue #6 で入れた変更が原因ではなく、issue #1 から存在する記述と実装の食い違いである。**
-フェーズ4の反映候補とする（記述をプロバイダ別に直すか、GitLab側へ寄せ替えを実装するか）。
+
+**→ flow-id 3-9 のレビューで「実装をそろえる」判断を受け、GitLab側へ実装した（検証10）。**
+記述を直す案は採らなかった。
 
 ### 2. サブエージェントが指摘本文へHTMLエンティティを出すことがある
 
@@ -327,7 +404,17 @@ GitLabのAPIは行の無いテキスト位置を受け付けないため投稿�
 実装・検証を通じて挙がったもの。**確定した反映内容ではなく、flow-id 4-1 で洗い出す際の候補**である。
 
 1. **段1の入口（MRメタ情報取得）・段2のリトライ方針**（検証で新たに判明したこと 3）。
-2. **`line` を持たない指摘の扱いのプロバイダ差**（同 1）。記述を直すか実装を揃えるかの判断が要る。
+2. **`line` を持たない指摘の扱いのプロバイダ差は、実装で解消済み**（検証10）。フェーズ4へ残るのは
+   **ドキュメント側の追随**である。
+   - `.claude/docs/spec/adversarial-review.md` の関数一覧が `github_filter_findings_by_valid_lines`
+     を挙げているが、**この関数は削除して共通の `filter_findings_by_valid_lines` へ統合した**。
+     `valid_ranges_from_patches` / `gitlab_valid_ranges_from_diffs_json` も一覧に無い。
+     **specの現在の記述が実装と食い違った状態のため、flow-id 4-6 で必ず直す。**
+   - `.claude/skills/adversarial-review/SKILL.md` 手順7の「`line` を持たない finding は…
+     有効行へインラインで付く」は、**これで両プロバイダの記述として正しくなった**（変更不要）。
+     ただし「有効行を持たないファイルではサマリへ回る」という限定は、あったほうがよい。
+   - `.claude/docs/ddr/0047-*.md` は**本文を変更しない**（point-in-timeの記録であり、当時の
+     関数名で書かれているのが正しい）。今回の統合はDDRの新規追加で記録するかを 4-1 で判断する。
 3. **エージェント定義へ「本文はmarkdownとして投稿される」旨を明記する**（同 2）。
 4. **空行2連続の機械的検査**（`awk 'prev=="" && $0==""'`）を `docs-workflow.md` へ足す。
 5. **17パターンの内訳をspecへ残す。** 今回 `root/answer-talker-verify` の9MRから復元したが、
@@ -336,4 +423,5 @@ GitLabのAPIは行の無いテキスト位置を受け付けないため投稿�
 
 ## 次の一手
 
-flow-id 3-8（敵対的レビューのフェーズ3・3回目＝最後）へ進む。
+flow-id 3-8（敵対的レビューのフェーズ3・3回目＝最後）へ進む。**対話セッションではAIから
+自律起動しない**ため、ユーザーの明示指示を待つ。

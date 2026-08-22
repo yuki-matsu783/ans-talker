@@ -14,7 +14,7 @@
 <div class="max-w-6xl mx-auto px-6 py-10">
 
   <header class="mb-10">
-    <p class="text-sm text-slate-500 mb-1">issue #6 ／ フェーズ3〈実装・テスト〉／ 2026-08-21〜22</p>
+    <p class="text-sm text-slate-500 mb-1">issue #6 ／ フェーズ3〈実装・テスト〉／ 2026-08-21〜23</p>
     <h1 class="text-3xl font-bold text-slate-900">受講者ソースの受け渡しの実装結果</h1>
     <p class="mt-2 text-slate-600">計画: <span class="mono text-sm">plans/【実装】【テスト】受講者ソースの受け渡し.md</span></p>
     <p class="mt-1 text-slate-600">正文: <span class="mono text-sm">reports/20260822_bubbly-exploring-biscuit_受講者ソースの受け渡しの実装結果.md</span></p>
@@ -22,7 +22,7 @@
 
   <section class="mb-10">
     <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">結論</h2>
-    <div class="grid md:grid-cols-3 gap-4">
+    <div class="grid md:grid-cols-2 gap-4">
       <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
         <p class="text-xs font-bold text-emerald-600 mb-2">1. 6ファイルすべて実装した</p>
         <p class="text-sm leading-relaxed">設計から変えたのは1点（<span class="mono">resolve</span> へ <span class="mono">--repo</span> を追加）。理由は<strong><span class="mono">_PROVIDER_CACHE</span> が別プロセスへ継承されない</strong>ことの実測。</p>
@@ -30,10 +30,14 @@
       <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
         <p class="text-xs font-bold text-emerald-600 mb-2">2. 3段の縮退が両プロバイダで動いた</p>
         <p class="text-sm leading-relaxed">GitHub・GitLabの<strong>実MR</strong>で段1→段2→段3を確認。段2・段3は上限値を0にして到達させた。</p>
+      </div>
       <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
         <p class="text-xs font-bold text-emerald-600 mb-2">3. 検証3項目も<strong>完了した</strong></p>
         <p class="text-sm leading-relaxed">hunk外の指摘が<strong>差分だけなら0件・全体を渡すと4件</strong>という対照実験で効果を確認。10パターンの再検証でも<strong>回帰なし</strong>。</p>
       </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-sky-500">
+        <p class="text-xs font-bold text-sky-600 mb-2">4. レビュー対応でプロバイダ差を解消した</p>
+        <p class="text-sm leading-relaxed"><span class="mono">line</span> 無し指摘の扱いを、GitLab側にも有効行の算出を持たせて揃えた。実機で <span class="mono">posted:0→1</span>。<strong>issue #1 から存在した欠陥</strong>である。</p>
       </div>
     </div>
   </section>
@@ -136,7 +140,7 @@
   <section class="mb-10">
     <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">単体テスト</h2>
     <div class="bg-white rounded-lg shadow-sm p-5">
-      <p class="text-lg font-bold text-emerald-600 mb-3">全16スイート NG=0（合計 passed=742 failures=0）</p>
+      <p class="text-lg font-bold text-emerald-600 mb-3">全16スイート NG=0（合計 passed=750 failures=0）</p>
       <table class="w-full text-sm">
         <thead class="bg-slate-100 text-slate-600">
           <tr><th class="text-left px-4 py-2">スイート</th><th class="px-4 py-2">変更前</th><th class="px-4 py-2">変更後</th></tr>
@@ -145,6 +149,7 @@
           <tr class="border-t border-slate-200"><td class="px-4 py-2 mono text-xs">test_answer_talker_submission.sh（新規）</td><td class="px-4 py-2 text-center">—</td><td class="px-4 py-2 text-center font-bold">30</td></tr>
           <tr class="border-t border-slate-200"><td class="px-4 py-2 mono text-xs">test_answer_talker_map.sh</td><td class="px-4 py-2 text-center">16</td><td class="px-4 py-2 text-center font-bold">27</td></tr>
           <tr class="border-t border-slate-200"><td class="px-4 py-2 mono text-xs">test_answer_talker_spoiler_check.sh</td><td class="px-4 py-2 text-center">21</td><td class="px-4 py-2 text-center font-bold">32</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono text-xs">test_vcs_provider.sh</td><td class="px-4 py-2 text-center">143</td><td class="px-4 py-2 text-center font-bold">151</td></tr>
         </tbody>
       </table>
       <p class="text-sm mt-3 text-slate-600">新規のアサーションは<strong>「渡さないと落ちる／渡すと残る」を両側から</strong>押さえている。片側だけだと「常に落とさない実装」も合格してしまうため。</p>
@@ -210,7 +215,7 @@
 
   <section class="mb-10">
     <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">ネタバレ検査は全パターンで健全</h2>
-    <div class="grid md:grid-cols-3 gap-4">
+    <div class="grid md:grid-cols-2 gap-4">
       <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
         <p class="text-xs font-bold text-emerald-600 mb-2">正規の指摘の脱落</p>
         <p class="text-3xl font-bold text-emerald-700">0<span class="text-sm font-normal ml-1">件 / 全10パターン</span></p>
@@ -229,11 +234,55 @@
   </section>
 
   <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-emerald-500 pl-3">レビュー対応: <span class="mono">line</span> 無し指摘のプロバイダ差を実装で解消した</h2>
+    <div class="bg-white rounded-lg shadow-sm p-5 mb-4">
+      <p class="text-sm text-slate-700 mb-3">「記述を直すか実装を揃えるか」について、flow-id 3-9 のレビューで<strong>「実装をそろえる」</strong>という指示を受けた。GitLab側に有効行の算出を実装した。<strong>issue #1 から存在する欠陥であり、issue #6 が作ったものではない。</strong></p>
+      <p class="text-sm font-bold text-slate-800 mb-2">同じMR（!8）・同じ指摘で、修正前後を比べた</p>
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600">
+          <tr><th class="text-left px-4 py-2"></th><th class="px-4 py-2">line無し・diff内</th><th class="px-4 py-2">line無し・diff外</th><th class="px-4 py-2">有効行外</th><th class="px-4 py-2">結果</th></tr>
+        </thead>
+        <tbody>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 font-bold">修正前</td><td class="px-4 py-2 text-center text-rose-600">400 失敗</td><td class="px-4 py-2 text-center text-rose-600">400 失敗</td><td class="px-4 py-2 text-center text-rose-600">400 失敗</td><td class="px-4 py-2 text-center mono">posted:0, summarized:3</td></tr>
+          <tr class="border-t border-slate-200 bg-emerald-50"><td class="px-4 py-2 font-bold">修正後</td><td class="px-4 py-2 text-center font-bold text-emerald-700">new_line:1 へ寄せて投稿</td><td class="px-4 py-2 text-center">サマリ</td><td class="px-4 py-2 text-center">サマリ</td><td class="px-4 py-2 text-center mono font-bold">posted:1, summarized:2</td></tr>
+        </tbody>
+      </table>
+      <p class="text-sm mt-3 text-slate-600">修正前の失敗は <span class="mono">400 Bad request … :position=&gt;["is incomplete"]</span>。<strong>「有効行を持つファイルなのに、行が無いというだけで拒否されていた」</strong>ことが確定した（!7 での実測は <span class="mono">patch</span> が空という別要因も重なっており、切り分けとしては弱かった）。</p>
+    </div>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="bg-white rounded-lg shadow-sm p-5">
+        <p class="font-bold text-sm mb-2">hunkヘッダの解釈は1箇所へ寄せた</p>
+        <p class="text-sm text-slate-700 mb-2">GitHub側のロジックをGitLabへ写すと、同じ正規表現が2箇所に増えて<strong>片方だけが直る余地</strong>が残る。APIの返却形の違いだけを各プロバイダが吸収する形にした。</p>
+        <ul class="text-sm text-slate-700 space-y-1 list-disc pl-5">
+          <li><span class="mono">Provider.sh</span>: <span class="mono">valid_ranges_from_patches</span> / <span class="mono">filter_findings_by_valid_lines</span> を新設（プロバイダ非依存の純粋関数）</li>
+          <li><span class="mono">Github.sh</span>: 正規化のみに縮小し委譲。<span class="mono">github_filter_findings_by_valid_lines</span> は削除して統合</li>
+          <li><span class="mono">Gitlab.sh</span>: <span class="mono">gitlab_valid_ranges_from_diffs_json</span> を新設し、投稿前に振り分け</li>
+        </ul>
+        <p class="text-sm mt-2 text-slate-600"><span class="mono">side</span>（"RIGHT"）の既定値付与は共通関数から外し <span class="mono">github_build_review_payload</span> へ寄せた。GitLabの <span class="mono">position</span> は <span class="mono">side</span> を持たないため。</p>
+      </div>
+      <div class="bg-rose-50 border-l-4 border-rose-400 rounded p-4">
+        <p class="font-bold text-sm mb-2">壊さないために置いた分岐が2つある</p>
+        <p class="text-sm text-slate-700 mb-2"><strong>1. 差分を取得できなければ振り分けず全件投稿を試みる。</strong> 空の範囲マップを渡すと<strong>全件が「有効行なし」と判定されてサマリへ落ちる</strong>。ローカルGitLabの接続断は実測で頻発しており、これは例外処理ではなく通常経路。</p>
+        <p class="text-sm text-slate-700"><strong>2. <span class="mono">old_line</span> を持つ指摘は判定せず通す。</strong> 範囲マップは新ファイル側しか持たず、純粋な削除hunkでは新側の有効行が空になる。落とすと<strong>GitLabが受け付けられる指摘まで捨てる</strong>。</p>
+      </div>
+    </div>
+    <div class="bg-white rounded-lg shadow-sm p-5 mt-4">
+      <p class="font-bold text-sm mb-2">過剰修正になっていないことも確認した</p>
+      <ul class="text-sm text-slate-700 space-y-1 list-disc pl-5">
+        <li><strong>MR !7（リネームのみ・<span class="mono">patch</span> が空）</strong> — 有効行マップは <span class="mono">{"cli.sh":[]}</span>、指摘2件は <span class="mono">post:0, summary:2</span>。<strong>引き続きサマリへ回る</strong>（有効行が存在しないため正しい）</li>
+        <li><strong>GitHub（このPR #7 の実データ）</strong> — 投稿せず組み立てまで実行。line無しは最小有効行(14)へ寄り、diff外はサマリ、<span class="mono">side</span> は RIGHT。<strong>挙動は変わっていない</strong></li>
+        <li><strong>単体テスト</strong> — <span class="mono">passed=750 failures=0</span>（+8）。<strong>「GitHub版とGitLab版が同じdiffに対して同じ範囲マップを返す」検査</strong>も入れ、揃えたことそのものを固定した</li>
+        <li>検証のために作った2スレッドは<strong>削除済み</strong>（<span class="mono">【検証用】</span> を含むスレッドの残存 0件）</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="mb-10">
     <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-amber-500 pl-3">検証で新たに判明したこと</h2>
     <div class="space-y-3">
       <div class="bg-amber-50 border-l-4 border-amber-400 rounded p-4">
-        <p class="font-bold text-sm mb-1">1. <span class="mono">line</span> を持たない指摘の扱いが、プロバイダで異なる</p>
-        <p class="text-sm text-slate-700">GitHub は有効行へ寄せてインライン投稿（<span class="mono">posted:1</span>）、GitLab は必ずサマリへ回る（<span class="mono">posted:0, summarized:3</span>）。<span class="mono">adversarial-review/SKILL.md</span> の記述は<strong>無条件だがGitHub限定の挙動</strong>である。GitLab側に有効行の算出ロジックが無い。<strong>issue #1 から存在する食い違いで、今回の変更が原因ではない。</strong></p>
+        <p class="font-bold text-sm mb-1">1. <span class="mono">line</span> を持たない指摘の扱いが、プロバイダで異なる <span class="text-emerald-700">→ 解消済み</span></p>
+        <p class="text-sm text-slate-700">GitHub は有効行へ寄せてインライン投稿（<span class="mono">posted:1</span>）、GitLab は必ずサマリへ回る（<span class="mono">posted:0, summarized:3</span>）。<span class="mono">adversarial-review/SKILL.md</span> の記述は<strong>無条件だがGitHub限定の挙動</strong>だった。GitLab側に有効行の算出ロジックが無かったためである。<strong>issue #1 から存在する食い違いで、今回の変更が原因ではない。</strong><br><strong class="text-emerald-700">flow-id 3-9 のレビューで「実装をそろえる」判断を受け、GitLab側へ実装した（下記）。</strong></p>
       </div>
       <div class="bg-amber-50 border-l-4 border-amber-400 rounded p-4">
         <p class="font-bold text-sm mb-1">2. サブエージェントが本文へHTMLエンティティを出すことがある</p>
