@@ -30,10 +30,10 @@
       <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
         <p class="text-xs font-bold text-emerald-600 mb-2">2. 3段の縮退が両プロバイダで動いた</p>
         <p class="text-sm leading-relaxed">GitHub・GitLabの<strong>実MR</strong>で段1→段2→段3を確認。段2・段3は上限値を0にして到達させた。</p>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
+        <p class="text-xs font-bold text-emerald-600 mb-2">3. 検証3項目も<strong>完了した</strong></p>
+        <p class="text-sm leading-relaxed">hunk外の指摘が<strong>差分だけなら0件・全体を渡すと4件</strong>という対照実験で効果を確認。10パターンの再検証でも<strong>回帰なし</strong>。</p>
       </div>
-      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-amber-500">
-        <p class="text-xs font-bold text-amber-600 mb-2">3. 検証2項目は<strong>未実施</strong></p>
-        <p class="text-sm leading-relaxed">サブエージェントの起動にユーザーの許可が要る。<strong>「実装は終わったが検証は終わっていない」</strong>状態である。</p>
       </div>
     </div>
   </section>
@@ -152,22 +152,98 @@
   </section>
 
   <section class="mb-10">
-    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-amber-500 pl-3">未実施の項目（「確かめられなかった」ではなく「まだ確かめていない」）</h2>
-    <div class="space-y-3">
-      <div class="bg-amber-50 border-l-4 border-amber-400 rounded p-4">
-        <p class="font-bold text-sm mb-1">受け入れ条件1: hunk外ファイルに基づく指摘が<strong>出て、かつ届く</strong>こと</p>
-        <p class="text-sm text-slate-700">必要なもの: <span class="mono">answer-talker-reviewer</span> の起動許可＋MRへの投稿許可。<span class="mono">summarized</span> の件数と本文まで見る。</p>
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-emerald-500 pl-3">受け入れ条件1: hunk外の指摘が出て、かつ届いた</h2>
+    <p class="text-sm text-slate-700 mb-4">対象は <span class="mono">p11-addonly</span>（MR !8）。<strong>ツリーに <span class="mono">main.sh</span> があるのに diff は <span class="mono">filter.sh</span> だけ</strong>——issue #6 が狙った形そのもの。</p>
+    <div class="grid md:grid-cols-2 gap-4 mb-4">
+      <div class="bg-rose-50 border-l-4 border-rose-400 rounded p-5">
+        <p class="text-xs font-bold text-rose-600 mb-2">縮退（issue #6 以前と同じ状態）</p>
+        <p class="text-4xl font-bold text-rose-700">0<span class="text-base font-normal ml-1">件</span></p>
+        <p class="text-sm text-slate-700 mt-2">差分だけを渡すと、指摘が1件も出ない。</p>
       </div>
-      <div class="bg-amber-50 border-l-4 border-amber-400 rounded p-4">
-        <p class="font-bold text-sm mb-1">受け入れ条件7: 17パターン相当の再検証</p>
-        <p class="text-sm text-slate-700">とくに<strong>②別解・⑤ほぼ正解で分割単位の指摘が出ない</strong>こと。<strong>最大の回帰リスク。</strong></p>
-      </div>
-      <div class="bg-amber-50 border-l-4 border-amber-400 rounded p-4">
-        <p class="font-bold text-sm mb-1">受け入れ条件3: <span class="mono">degraded: true</span> の場合の突き合わせ</p>
-        <p class="text-sm text-slate-700">段3を人工的に作ってサブエージェントを起動し、入力JSONと定義の記述を照合する。</p>
+      <div class="bg-emerald-50 border-l-4 border-emerald-500 rounded p-5">
+        <p class="text-xs font-bold text-emerald-600 mb-2">受講者ソース全体あり</p>
+        <p class="text-4xl font-bold text-emerald-700">4<span class="text-base font-normal ml-1">件</span></p>
+        <p class="text-sm text-slate-700 mt-2">blocker/high ×2 を含む。うち3件は hunk外の <span class="mono">main.sh</span> を読まなければ書けない。</p>
       </div>
     </div>
-    <p class="text-sm mt-4 text-slate-700"><strong>受け入れ条件1と7は、今回の変更の中心に対する検証である。</strong> 実装が終わったことをもって「受け入れ条件を満たした」とは言えない。</p>
+    <div class="bg-white rounded-lg shadow-sm p-5">
+      <p class="text-sm font-bold mb-2">「届く」の確認</p>
+      <pre class="mono text-xs bg-slate-900 text-slate-100 rounded p-3 overflow-x-auto">add_mr_inline_comments 8 … 演習レビュー  →  {"posted":1,"summarized":2}</pre>
+      <p class="text-sm text-slate-700 mt-3"><span class="mono">posted:1</span> は diff内の <span class="mono">filter.sh</span>。<strong><span class="mono">summarized:2</span> が hunk外の <span class="mono">main.sh</span> 2件</strong>で、MRのスレッドへ本文込みで投稿されていることをAPIで確認した。</p>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-emerald-500 pl-3">受け入れ条件7: 10パターンの再検証 — 回帰なし</h2>
+    <div class="bg-white rounded-lg shadow-sm overflow-hidden mb-4">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600"><tr><th class="text-left px-4 py-2">MR</th><th class="text-left px-4 py-2">パターン</th><th class="text-right px-4 py-2">指摘</th><th class="text-right px-4 py-2">投稿</th><th class="text-right px-4 py-2">サマリ</th></tr></thead>
+        <tbody>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono">!1</td><td class="px-4 py-2">①分割不足</td><td class="px-4 py-2 text-right">2</td><td class="px-4 py-2 text-right">2</td><td class="px-4 py-2 text-right">0</td></tr>
+          <tr class="border-t border-slate-200 bg-amber-50"><td class="px-4 py-2 mono">!2</td><td class="px-4 py-2"><strong>②別解</strong>（凝集度が低い）</td><td class="px-4 py-2 text-right">3</td><td class="px-4 py-2 text-right">1</td><td class="px-4 py-2 text-right">0</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono">!3</td><td class="px-4 py-2">③重複</td><td class="px-4 py-2 text-right">3</td><td class="px-4 py-2 text-right">3</td><td class="px-4 py-2 text-right">0</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono">!4</td><td class="px-4 py-2">④余分な抽象化</td><td class="px-4 py-2 text-right">5</td><td class="px-4 py-2 text-right">4</td><td class="px-4 py-2 text-right">0</td></tr>
+          <tr class="border-t border-slate-200 bg-emerald-50"><td class="px-4 py-2 mono">!5</td><td class="px-4 py-2"><strong>⑤ほぼ正解</strong></td><td class="px-4 py-2 text-right">1<span class="text-xs text-slate-500 ml-1">minor</span></td><td class="px-4 py-2 text-right font-bold">0</td><td class="px-4 py-2 text-right">0</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono">!6</td><td class="px-4 py-2">削除</td><td class="px-4 py-2 text-right">3</td><td class="px-4 py-2 text-right">1</td><td class="px-4 py-2 text-right">2</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono">!7</td><td class="px-4 py-2">リネーム（<span class="mono">patch</span> が空）</td><td class="px-4 py-2 text-right">3</td><td class="px-4 py-2 text-right">0</td><td class="px-4 py-2 text-right">3</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono">!8</td><td class="px-4 py-2">新規追加</td><td class="px-4 py-2 text-right">4</td><td class="px-4 py-2 text-right">1</td><td class="px-4 py-2 text-right">2</td></tr>
+          <tr class="border-t border-slate-200 bg-amber-50"><td class="px-4 py-2 mono">!9</td><td class="px-4 py-2"><strong>②別解</strong>（責務は分割・ファイルは1つ）</td><td class="px-4 py-2 text-right">1</td><td class="px-4 py-2 text-right">0</td><td class="px-4 py-2 text-right">1</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono">GH #1</td><td class="px-4 py-2">同上（<strong>GitHub</strong>）</td><td class="px-4 py-2 text-right">1</td><td class="px-4 py-2 text-right">1</td><td class="px-4 py-2 text-right">0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="bg-emerald-50 border-l-4 border-emerald-500 rounded p-4 mb-4">
+      <p class="text-sm"><strong>⑤ほぼ正解では分割単位の指摘が出ていない。</strong> 出たのは命名の揺れ1件（minor/medium）だけで、選別の結果<strong>投稿は0件</strong>になった。</p>
+    </div>
+    <div class="bg-white rounded-lg shadow-sm p-5">
+      <p class="text-sm font-bold mb-2">②別解（!9）が回帰かどうかの対照実験</p>
+      <table class="w-full text-sm mt-2">
+        <thead class="bg-slate-100 text-slate-600"><tr><th class="text-left px-3 py-2">実行条件</th><th class="text-left px-3 py-2">指摘</th></tr></thead>
+        <tbody>
+          <tr class="border-t border-slate-200"><td class="px-3 py-2">受講者ソースあり（<span class="mono">scope:"full"</span>）</td><td class="px-3 py-2">1件 major/medium <span class="mono">responsibility-split</span></td></tr>
+          <tr class="border-t border-slate-200"><td class="px-3 py-2">縮退（<span class="mono">scope:"diff"</span>＝issue #6 以前）</td><td class="px-3 py-2">1件 major/medium <span class="mono">responsibility-split</span>（<strong>同内容</strong>）</td></tr>
+        </tbody>
+      </table>
+      <p class="text-sm text-slate-700 mt-3"><strong>縮退させても同じ指摘が同じ重大度・確度で出る。</strong> この指摘は差分そのものから出ており、受講者ソース全体を渡したことが原因ではない。<strong>回帰ではない。</strong></p>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">ネタバレ検査は全パターンで健全</h2>
+    <div class="grid md:grid-cols-3 gap-4">
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
+        <p class="text-xs font-bold text-emerald-600 mb-2">正規の指摘の脱落</p>
+        <p class="text-3xl font-bold text-emerald-700">0<span class="text-sm font-normal ml-1">件 / 全10パターン</span></p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-indigo-500">
+        <p class="text-xs font-bold text-indigo-600 mb-2">禁止語の語数（<span class="mono">forbiddenCount</span>）</p>
+        <p class="text-3xl font-bold text-indigo-700">5〜10</p>
+        <p class="text-sm text-slate-700 mt-1">空になっておらず、検査が無効化していない。</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-rose-500">
+        <p class="text-xs font-bold text-rose-600 mb-2">転記ありの注入テスト</p>
+        <p class="text-3xl font-bold text-rose-700">1<span class="text-sm font-normal ml-1">件を捕捉</span></p>
+        <p class="text-sm text-slate-700 mt-1">正解にしか無い識別子2語に反応。正規の3件は残存。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-amber-500 pl-3">検証で新たに判明したこと</h2>
+    <div class="space-y-3">
+      <div class="bg-amber-50 border-l-4 border-amber-400 rounded p-4">
+        <p class="font-bold text-sm mb-1">1. <span class="mono">line</span> を持たない指摘の扱いが、プロバイダで異なる</p>
+        <p class="text-sm text-slate-700">GitHub は有効行へ寄せてインライン投稿（<span class="mono">posted:1</span>）、GitLab は必ずサマリへ回る（<span class="mono">posted:0, summarized:3</span>）。<span class="mono">adversarial-review/SKILL.md</span> の記述は<strong>無条件だがGitHub限定の挙動</strong>である。GitLab側に有効行の算出ロジックが無い。<strong>issue #1 から存在する食い違いで、今回の変更が原因ではない。</strong></p>
+      </div>
+      <div class="bg-amber-50 border-l-4 border-amber-400 rounded p-4">
+        <p class="font-bold text-sm mb-1">2. サブエージェントが本文へHTMLエンティティを出すことがある</p>
+        <p class="text-sm text-slate-700">12回の起動のうち3回で実体参照が現れた。投稿本文はmarkdownのため、そのままだと文字列として見えてしまう。今回は投稿前に元の文字へ戻した。エージェント定義に「本文はmarkdownとして投稿される」旨の記述が無いことが原因と考えられる。</p>
+      </div>
+      <div class="bg-amber-50 border-l-4 border-amber-400 rounded p-4">
+        <p class="font-bold text-sm mb-1">3. ローカルGitLabの接続断は、段2に限らない</p>
+        <p class="text-sm text-slate-700">MRのメタ情報取得（段1の入口）でも発生した（<span class="mono">reason:"head-sha-unavailable"</span>）。リトライで成功する一過性のもの。<strong>縮退は毎回設計どおり働いた</strong>が、リトライの検討対象は段2だけではない。</p>
+      </div>
+    </div>
   </section>
 
   <section class="mb-10">
@@ -176,9 +252,9 @@
       <table class="w-full text-sm">
         <thead class="bg-slate-100 text-slate-600"><tr><th class="text-left px-4 py-2">項目</th><th class="text-left px-4 py-2">結果</th></tr></thead>
         <tbody>
-          <tr class="border-t border-slate-200"><td class="px-4 py-2">GitHub非公開リポジトリでのアーカイブ取得</td><td class="px-4 py-2"><span class="text-rose-600 font-bold">未確認。</span> <span class="mono text-xs">test-repo</span> は公開。一時的に非公開へ切り替えてよいかをユーザーへ確認していない（<strong>非公開リポジトリを新規に作らない</strong>制約がある）</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2">GitHub非公開リポジトリでのアーカイブ取得</td><td class="px-4 py-2"><span class="text-rose-600 font-bold">未確認。</span> ユーザーの承認は得たが、可視性を変更するコマンドの実行が<strong>実行環境の権限分類器にブロックされた</strong>。<strong>「確かめられなかった」であって「動かない」ではない</strong></td></tr>
           <tr class="border-t border-slate-200"><td class="px-4 py-2">サイズが取得できない環境での挙動</td><td class="px-4 py-2"><span class="text-amber-600 font-bold">コード上は確認済み・実環境では未確認。</span> サイズを返さないGitLabインスタンスが手元に無い</td></tr>
-          <tr class="border-t border-slate-200"><td class="px-4 py-2">上限値（100MB・50件・500件・60秒）の妥当性</td><td class="px-4 py-2"><span class="text-rose-600 font-bold">未確認。</span> 今回の検証対象（2ファイル）では一度も上限に触れていない。<strong>「妥当だと確認した」とは書けない</strong></td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2">上限値（100MB・50件・500件・60秒）の妥当性</td><td class="px-4 py-2"><span class="text-rose-600 font-bold">未確認。</span> 今回の検証対象（最大5ファイル）では一度も上限に触れていない。<strong>「妥当だと確認した」とは書けない</strong></td></tr>
         </tbody>
       </table>
     </div>
