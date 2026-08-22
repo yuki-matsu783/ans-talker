@@ -14,7 +14,7 @@ keywords: [submission, 縮退, degraded, materialScope, forbiddenCount, subtract
 - worklog: `worklog/…_push1.md`（取得側）・`worklog/…_push2.md`（受け取り側）・
   `worklog/…_push3.md`（検証）・`worklog/…_push4.md`（レビュー対応）
 
-## 結論（4行）
+## 結論（5行）
 
 1. **6ファイルすべてを実装した。** 設計から変えたのは1点（`resolve` へ `--repo` を追加）で、
    理由は「`_PROVIDER_CACHE` はシェル変数であり別プロセスへ継承されない」ことの実測。
@@ -26,6 +26,11 @@ keywords: [submission, 縮退, degraded, materialScope, forbiddenCount, subtract
    hunkヘッダの解釈を `Provider.sh` の共通純粋関数へ寄せ、GitLabにも有効行の算出を持たせた。
    実機で `posted:0→1` を確認している。**issue #1 から存在した欠陥であり、issue #6 が
    作ったものではない。**
+5. **敵対的レビュー（フェーズ3の3回目・上限到達）の指摘9件を全件修正した**（検証11）。
+   **最も重い1件は、直前の 4 で自分が入れた分岐がGitHub経路を壊すというもの**で、
+   push4のworklogに書いた「GitHubでは無害」という前提そのものが誤っていた。
+   引数長の境界（500件×パス長65文字で `Argument list too long`）と、修正後に
+   `line:null` が0件であることは**実測で確認**している。
 
 ## 実装した6ファイル
 
@@ -126,14 +131,14 @@ GitLab の段2を測る過程で、**3回中2回、段2が失敗して段3へ落
 
 ## 検証4: 単体テスト
 
-**全16スイート `NG=0`（合計 `passed=750 failures=0`）。**
+**全16スイート `NG=0`（合計 `passed=762 failures=0`）。**
 
 | スイート | 変更前 | 変更後 |
 |---|---|---|
-| `test_answer_talker_submission.sh`（新規） | — | 30 |
+| `test_answer_talker_submission.sh`（新規） | — | 37（検証11の +7 を含む） |
 | `test_answer_talker_map.sh` | 16 | 27 |
 | `test_answer_talker_spoiler_check.sh` | 21 | 32 |
-| `test_vcs_provider.sh` | 143 | 151（検証10の +8 を含む） |
+| `test_vcs_provider.sh` | 143 | 156（検証10の +8・検証11の +5 を含む） |
 
 新規のアサーションは、いずれも**「渡さないと落ちる／渡すと残る」を両側から押さえる**形にした。
 片側だけだと「常に落とさない実装」も合格してしまうため。終了コードの検査は
@@ -333,6 +338,75 @@ GitLabの `position` は `side` を持たないため、共通の判定ロジッ
 選択肢もあったが、レビューでの指示は「実装をそろえる」であり、対象が `add_mr_inline_comments`
 という**このissueで実際に使い倒した経路**であること、変更が3ファイル・純粋関数中心で
 テストしやすいことから、このMRに含めた。
+
+## 検証11: 敵対的レビュー（フェーズ3の3回目）の指摘9件を全件修正した — **完了**
+
+flow-id 3-8 として実施した敵対的レビュー（3/3回目・上限到達）で9件の指摘を受け、**ユーザーの
+指示によりこのMRで全件を修正した**（7件はPR #7へ投稿済み、2件は選別表により報告のみ）。
+
+### 最も重い指摘は、直前の flow-id 3-9 で自分が入れた分岐だった
+
+`filter_findings_by_valid_lines` の `old_line` 素通しは**GitHub経路を壊していた**。共通関数に
+置いたためGitHubからも通り、`github_build_review_payload` が `line: null` のコメントを作る。
+**GitHubのレビュー投稿は原子的で、1件でも不正な行が混ざるとそのMRのインライン投稿が全件失敗する。**
+
+push4のworklogには「GitHub側は `old_line` を使っていないため無害（現状のfindingsスキーマにも
+無い）」と書いていたが、`.claude/agents/*.md` は「削除行は `old_line` のみ」と**明示的に指示して
+いる**。前提そのものが誤っていた。
+
+修正は、判定を第2引数 `allow_old_line` で切り替える形にした。**「判定できないものをどちらへ倒すか」
+の答えがプロバイダで正反対**だからである。
+
+| `allow_old_line` | 呼び出し元 | `old_line` を持つ指摘の扱い |
+|---|---|---|
+| `true` | GitLab | postへ通す。新側の `line` が有効行に無ければ**その `line` を落とし**、`old_line` だけで位置を決めさせる |
+| `false`（既定） | GitHub | 新側の有効行が決まらない限り**サマリへ回す** |
+
+修正後、`old_line` のみの指摘を含むfindingsをGitHub経路へ流し、**組み立てたペイロードに
+`line: null` が0件**であることを確認した（修正前は1件混入していた）。
+
+### 引数長の境界は、実測で再現してから直した
+
+`answer-talker-submission.sh` が一覧を `jq --args` の位置引数で渡していた件は、**指摘された境界を
+実際に踏んでから**修正した。
+
+```
+件数=500 平均パス長=65
+旧実装（--args）  : FAIL(exit=126) /c/Program Files/jq/jq: Argument list too long
+新実装（--rawfile）: OK 500件
+0件のとき         : {"files":[]}
+```
+
+`--max-list-files` の既定が500なので、**平均パス長が約64文字を超えると必ず失敗する**。
+`packages/app/src/main/java/...` のような構成では珍しくない。しかも失敗するのは展開が終わった
+後であり、`set -e` で落ちて**stdoutへ何も出ない**ため、`tmpdir` を返せず後始末の呼び先が失われる。
+
+### 修正した9件
+
+| # | 対象 | 重大度 | 何を直したか |
+|---|---|---|---|
+| 1 | `Provider.sh` | major | `old_line` の扱いを `allow_old_line` で切り替え、GitHubでは `line:null` を作らない |
+| 2 | `answer-talker-submission.sh` | major | 一覧を `--rawfile` 経由にし、件数に依存しない形へ |
+| 3 | `answer-talker-submission.sh` | major | `find ... ! -empty` / `-empty` で**空ファイルをバイナリ扱いしない** |
+| 4 | `Gitlab.sh` | major | `truncated` の説明を実装に合わせ、`fetch_stage2` が値を**参照する**ようにした |
+| 5 | `Provider.sh` / `issue-mr-flow/SKILL.md` | minor | 新設5関数を `mcp_tool_hint` と対応表へ追加 |
+| 6 | `answer-talker-submission.sh` | minor | 縮退理由を `fetch-failed/size-unknown` の併記形式へ |
+| 7 | 5スクリプト | minor | コメントからの `reports/` 参照を issue番号・spec へ置き換え |
+| 8 | `answer-talker-submission.sh` | minor（報告のみ） | 段1の展開失敗時に `$tmpdir/source` を消し、段2を空から始める |
+| 9 | `answer-talker-reviewer.md` | minor（報告のみ） | 全文Readの対象を選ぶ手順・目安件数・打ち切りの注意を追加 |
+
+3と4は**同じ形の欠陥**である。どちらも「取得できたものが全件である」と暗黙に仮定していて、
+欠けたときに**エラーではなく `degraded:false` の正常応答として**下流へ流れる。結果は同じで、
+**実在するファイルについて「作られていない」という指摘が出る**。
+
+### 検証
+
+- 単体テスト **全16スイート `passed=762 failures=0`**（750→762、+12件）。内訳は
+  `test_vcs_provider.sh` +5（GitHub/GitLabで `old_line` の扱いが分かれることを両方向から固定）、
+  `test_answer_talker_submission.sh` +7（空ファイル・段1の残骸・`truncated` の3系統）。
+- **既存テスト1件は意図的に置き換えた**。「`old_line` を持つ指摘は判定せず投稿対象」は
+  GitHubでは誤りになったため、プロバイダごとの2組へ分割した。
+- 引数長・`line:null` は上記のとおり**実測で確認**した。
 
 ## 検証で新たに判明したこと
 

@@ -39,6 +39,10 @@
         <p class="text-xs font-bold text-sky-600 mb-2">4. レビュー対応でプロバイダ差を解消した</p>
         <p class="text-sm leading-relaxed"><span class="mono">line</span> 無し指摘の扱いを、GitLab側にも有効行の算出を持たせて揃えた。実機で <span class="mono">posted:0→1</span>。<strong>issue #1 から存在した欠陥</strong>である。</p>
       </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-rose-500">
+        <p class="text-xs font-bold text-rose-600 mb-2">5. 敵対的レビューの指摘9件を全件修正した</p>
+        <p class="text-sm leading-relaxed"><strong>最も重い1件は、直前の 4 で自分が入れた分岐がGitHub経路を壊すというもの。</strong> push4のworklogに書いた「GitHubでは無害」という前提が誤っていた。引数長の境界と <span class="mono">line:null</span> の解消は<strong>実測で確認</strong>。</p>
+      </div>
     </div>
   </section>
 
@@ -140,16 +144,16 @@
   <section class="mb-10">
     <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">単体テスト</h2>
     <div class="bg-white rounded-lg shadow-sm p-5">
-      <p class="text-lg font-bold text-emerald-600 mb-3">全16スイート NG=0（合計 passed=750 failures=0）</p>
+      <p class="text-lg font-bold text-emerald-600 mb-3">全16スイート NG=0（合計 passed=762 failures=0）</p>
       <table class="w-full text-sm">
         <thead class="bg-slate-100 text-slate-600">
           <tr><th class="text-left px-4 py-2">スイート</th><th class="px-4 py-2">変更前</th><th class="px-4 py-2">変更後</th></tr>
         </thead>
         <tbody>
-          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono text-xs">test_answer_talker_submission.sh（新規）</td><td class="px-4 py-2 text-center">—</td><td class="px-4 py-2 text-center font-bold">30</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono text-xs">test_answer_talker_submission.sh（新規）</td><td class="px-4 py-2 text-center">—</td><td class="px-4 py-2 text-center font-bold">37</td></tr>
           <tr class="border-t border-slate-200"><td class="px-4 py-2 mono text-xs">test_answer_talker_map.sh</td><td class="px-4 py-2 text-center">16</td><td class="px-4 py-2 text-center font-bold">27</td></tr>
           <tr class="border-t border-slate-200"><td class="px-4 py-2 mono text-xs">test_answer_talker_spoiler_check.sh</td><td class="px-4 py-2 text-center">21</td><td class="px-4 py-2 text-center font-bold">32</td></tr>
-          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono text-xs">test_vcs_provider.sh</td><td class="px-4 py-2 text-center">143</td><td class="px-4 py-2 text-center font-bold">151</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-4 py-2 mono text-xs">test_vcs_provider.sh</td><td class="px-4 py-2 text-center">143</td><td class="px-4 py-2 text-center font-bold">156</td></tr>
         </tbody>
       </table>
       <p class="text-sm mt-3 text-slate-600">新規のアサーションは<strong>「渡さないと落ちる／渡すと残る」を両側から</strong>押さえている。片側だけだと「常に落とさない実装」も合格してしまうため。</p>
@@ -271,12 +275,68 @@
       <ul class="text-sm text-slate-700 space-y-1 list-disc pl-5">
         <li><strong>MR !7（リネームのみ・<span class="mono">patch</span> が空）</strong> — 有効行マップは <span class="mono">{"cli.sh":[]}</span>、指摘2件は <span class="mono">post:0, summary:2</span>。<strong>引き続きサマリへ回る</strong>（有効行が存在しないため正しい）</li>
         <li><strong>GitHub（このPR #7 の実データ）</strong> — 投稿せず組み立てまで実行。line無しは最小有効行(14)へ寄り、diff外はサマリ、<span class="mono">side</span> は RIGHT。<strong>挙動は変わっていない</strong></li>
-        <li><strong>単体テスト</strong> — <span class="mono">passed=750 failures=0</span>（+8）。<strong>「GitHub版とGitLab版が同じdiffに対して同じ範囲マップを返す」検査</strong>も入れ、揃えたことそのものを固定した</li>
+        <li><strong>単体テスト</strong> — <span class="mono">passed=762 failures=0</span>。<strong>「GitHub版とGitLab版が同じdiffに対して同じ範囲マップを返す」検査</strong>も入れ、揃えたことそのものを固定した</li>
         <li>検証のために作った2スレッドは<strong>削除済み</strong>（<span class="mono">【検証用】</span> を含むスレッドの残存 0件）</li>
       </ul>
     </div>
   </section>
 
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-rose-500 pl-3">敵対的レビュー（フェーズ3の3回目・上限到達）の指摘9件を全件修正した</h2>
+    <div class="bg-rose-50 border-l-4 border-rose-400 rounded p-5 mb-4">
+      <p class="font-bold text-sm mb-2">最も重い1件は、直前のレビュー対応で自分が入れた分岐だった</p>
+      <p class="text-sm text-slate-700 mb-2"><span class="mono">filter_findings_by_valid_lines</span> の <span class="mono">old_line</span> 素通しは<strong>GitHub経路を壊していた</strong>。共通関数に置いたためGitHubからも通り、<span class="mono">line: null</span> のコメントを作る。<strong>GitHubのレビュー投稿は原子的で、1件でも不正な行が混ざるとそのMRのインライン投稿が全件失敗する。</strong></p>
+      <p class="text-sm text-slate-700">push4のworklogには「GitHub側は <span class="mono">old_line</span> を使っていないため無害」と書いていたが、<span class="mono">.claude/agents/*.md</span> は「削除行は <span class="mono">old_line</span> のみ」と<strong>明示的に指示している</strong>。<strong>前提そのものが誤っていた。</strong></p>
+    </div>
+    <div class="grid md:grid-cols-2 gap-4 mb-4">
+      <div class="bg-white rounded-lg shadow-sm p-5">
+        <p class="font-bold text-sm mb-2">判定できないものを、どちらへ倒すか</p>
+        <p class="text-sm text-slate-700 mb-3">答えがプロバイダで正反対のため、第2引数 <span class="mono">allow_old_line</span> で切り替える形にした。</p>
+        <table class="w-full text-sm">
+          <thead class="bg-slate-100 text-slate-600"><tr><th class="px-3 py-2">引数</th><th class="px-3 py-2">経路</th><th class="text-left px-3 py-2">扱い</th></tr></thead>
+          <tbody>
+            <tr class="border-t border-slate-200"><td class="px-3 py-2 text-center mono text-xs">true</td><td class="px-3 py-2 text-center">GitLab</td><td class="px-3 py-2">postへ通す。無効な <span class="mono">line</span> は落とし <span class="mono">old_line</span> だけで位置を決めさせる</td></tr>
+            <tr class="border-t border-slate-200 bg-emerald-50"><td class="px-3 py-2 text-center mono text-xs">false</td><td class="px-3 py-2 text-center">GitHub</td><td class="px-3 py-2">新側の有効行が決まらない限り<strong>サマリへ回す</strong></td></tr>
+          </tbody>
+        </table>
+        <p class="text-sm mt-3 text-slate-600">修正後、<span class="mono">old_line</span> のみの指摘を含むfindingsをGitHub経路へ流し、ペイロードに <span class="mono">line: null</span> が<strong>0件</strong>であることを確認した（修正前は1件混入）。</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5">
+        <p class="font-bold text-sm mb-2">引数長の境界は、実測で再現してから直した</p>
+        <pre class="mono text-xs bg-slate-900 text-slate-100 rounded p-3 overflow-x-auto">件数=500 平均パス長=65
+旧 --args   : FAIL(126) Argument list too long
+新 --rawfile: OK 500件
+0件のとき   : {"files":[]}</pre>
+        <p class="text-sm mt-3 text-slate-700"><span class="mono">--max-list-files</span> の既定が500なので、<strong>平均パス長が約64文字を超えると必ず失敗する</strong>。しかも失敗するのは展開が終わった後で、<span class="mono">set -e</span> により<strong>stdoutへ何も出ない</strong>ため <span class="mono">tmpdir</span> を返せず、後始末の呼び先が失われる。</p>
+      </div>
+    </div>
+    <div class="bg-white rounded-lg shadow-sm p-5 mb-4">
+      <p class="font-bold text-sm mb-3">修正した9件</p>
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600"><tr><th class="px-3 py-2">#</th><th class="text-left px-3 py-2">対象</th><th class="px-3 py-2">重大度</th><th class="text-left px-3 py-2">何を直したか</th></tr></thead>
+        <tbody>
+          <tr class="border-t border-slate-200"><td class="px-3 py-2 text-center">1</td><td class="px-3 py-2 mono text-xs">Provider.sh</td><td class="px-3 py-2 text-center text-rose-600 font-bold">major</td><td class="px-3 py-2">GitHubで <span class="mono">line:null</span> を作らない</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-3 py-2 text-center">2</td><td class="px-3 py-2 mono text-xs">answer-talker-submission.sh</td><td class="px-3 py-2 text-center text-rose-600 font-bold">major</td><td class="px-3 py-2">一覧を <span class="mono">--rawfile</span> 経由にし件数に依存しない形へ</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-3 py-2 text-center">3</td><td class="px-3 py-2 mono text-xs">answer-talker-submission.sh</td><td class="px-3 py-2 text-center text-rose-600 font-bold">major</td><td class="px-3 py-2"><strong>空ファイルをバイナリ扱いしない</strong></td></tr>
+          <tr class="border-t border-slate-200"><td class="px-3 py-2 text-center">4</td><td class="px-3 py-2 mono text-xs">Gitlab.sh</td><td class="px-3 py-2 text-center text-rose-600 font-bold">major</td><td class="px-3 py-2"><span class="mono">truncated</span> の説明を実装に合わせ、段2が値を<strong>参照する</strong></td></tr>
+          <tr class="border-t border-slate-200"><td class="px-3 py-2 text-center">5</td><td class="px-3 py-2 mono text-xs">Provider.sh / SKILL.md</td><td class="px-3 py-2 text-center text-amber-600">minor</td><td class="px-3 py-2">新設5関数をMCP対応表へ追加</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-3 py-2 text-center">6</td><td class="px-3 py-2 mono text-xs">answer-talker-submission.sh</td><td class="px-3 py-2 text-center text-amber-600">minor</td><td class="px-3 py-2">縮退理由を <span class="mono">fetch-failed/size-unknown</span> の併記形式へ</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-3 py-2 text-center">7</td><td class="px-3 py-2 mono text-xs">5スクリプト</td><td class="px-3 py-2 text-center text-amber-600">minor</td><td class="px-3 py-2">コメントからの <span class="mono">reports/</span> 参照を issue番号・spec へ</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-3 py-2 text-center">8</td><td class="px-3 py-2 mono text-xs">answer-talker-submission.sh</td><td class="px-3 py-2 text-center text-slate-500">報告のみ</td><td class="px-3 py-2">段1の展開失敗時に残骸を消し、段2を空から始める</td></tr>
+          <tr class="border-t border-slate-200"><td class="px-3 py-2 text-center">9</td><td class="px-3 py-2 mono text-xs">answer-talker-reviewer.md</td><td class="px-3 py-2 text-center text-slate-500">報告のみ</td><td class="px-3 py-2">全文Readの対象を選ぶ手順・目安件数を追加</td></tr>
+        </tbody>
+      </table>
+      <p class="text-sm mt-3 text-slate-700"><strong>3と4は同じ形の欠陥である。</strong> どちらも「取得できたものが全件である」と暗黙に仮定していて、欠けたときに<strong>エラーではなく <span class="mono">degraded:false</span> の正常応答として</strong>下流へ流れる。結果は同じで、<strong>実在するファイルについて「作られていない」という指摘が出る</strong>。</p>
+    </div>
+    <div class="bg-white rounded-lg shadow-sm p-5">
+      <p class="font-bold text-sm mb-2">検証</p>
+      <ul class="text-sm text-slate-700 space-y-1 list-disc pl-5">
+        <li>単体テスト <strong>全16スイート <span class="mono">passed=762 failures=0</span></strong>（750→762、+12）。<span class="mono">test_vcs_provider.sh</span> +5（<span class="mono">old_line</span> の扱いが分かれることを両方向から固定）、<span class="mono">test_answer_talker_submission.sh</span> +7（空ファイル・段1の残骸・<span class="mono">truncated</span> の3系統）</li>
+        <li><strong>既存テスト1件は意図的に置き換えた。</strong>「<span class="mono">old_line</span> を持つ指摘は判定せず投稿対象」はGitHubでは誤りになったため、プロバイダごとの2組へ分割した</li>
+        <li>引数長・<span class="mono">line:null</span> は<strong>実測で確認</strong>した（上記）</li>
+      </ul>
+    </div>
+  </section>
   <section class="mb-10">
     <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-amber-500 pl-3">検証で新たに判明したこと</h2>
     <div class="space-y-3">
