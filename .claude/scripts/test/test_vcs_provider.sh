@@ -539,16 +539,46 @@ assert_eq "filter_findings_by_valid_lines: 有効行内なら投稿対象" \
   '2' \
   "$(printf '%s' '{"findings":[{"path":"new.sh","line":2}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '.post[0].line')"
 
-# 削除行への指摘（`old_line`）は、新ファイル側の範囲マップでは判定できない。純粋な削除hunkの
-# ファイルでは新側の有効行が空になるため、ここでサマリへ落とすとGitLabが受け付けられる指摘まで
-# 捨てることになる（issue #6）。
-assert_eq "filter_findings_by_valid_lines: old_lineを持つ指摘は判定せず投稿対象" \
-  '1 0' \
+# 削除行への指摘（`old_line`）は、新ファイル側の範囲マップでは判定できない。「判定できないものを
+# どちらへ倒すか」の答えがプロバイダで正反対になるため、第2引数で切り替える（issue #6）。
+#
+# GitHub（既定の `false`）: レビューAPIは `old_line` を受け付けず、`line` を省くと `line:null` の
+# コメントになる。**投稿は原子的で、1件でも不正な行が混ざるとそのMRの投稿が全件失敗する**ため、
+# 新側の有効行が決まらない限りサマリへ回す。
+assert_eq "filter_findings_by_valid_lines: GitHubではold_lineのみの指摘はサマリへ回る" \
+  '0 1' \
   "$(printf '%s' '{"findings":[{"path":"binary.png","old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '"\(.post | length) \(.summary | length)"')"
 
-assert_eq "filter_findings_by_valid_lines: old_lineを持つ指摘にlineを補わない" \
+# 有効行を持つファイルであっても、`line` が無ければ最小有効行を補って投稿してはいけない
+# （削除行への指摘が無関係な行に付く）。
+assert_eq "filter_findings_by_valid_lines: GitHubではold_lineに有効行を補わない" \
+  '0 1' \
+  "$(printf '%s' '{"findings":[{"path":"new.sh","old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '"\(.post | length) \(.summary | length)"')"
+
+# 新側の `line` が有効行に入っていれば、`old_line` の併記があっても通常どおり投稿する。
+assert_eq "filter_findings_by_valid_lines: GitHubでもlineが有効なら投稿対象" \
+  '1 0' \
+  "$(printf '%s' '{"findings":[{"path":"new.sh","line":2,"old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '"\(.post | length) \(.summary | length)"')"
+
+# GitLab（`true`）: `position` は `old_line` だけでも成立するため投稿へ通す。純粋な削除hunkの
+# ファイルでは新側の有効行が空になるので、落とすと受け付けられる指摘まで捨てることになる。
+assert_eq "filter_findings_by_valid_lines: GitLabではold_lineのみの指摘も投稿対象" \
+  '1 0' \
+  "$(printf '%s' '{"findings":[{"path":"binary.png","old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" true | jq -r '"\(.post | length) \(.summary | length)"')"
+
+assert_eq "filter_findings_by_valid_lines: GitLabではold_lineを持つ指摘にlineを補わない" \
   'null' \
-  "$(printf '%s' '{"findings":[{"path":"new.sh","old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '.post[0].line')"
+  "$(printf '%s' '{"findings":[{"path":"new.sh","old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" true | jq -r '.post[0].line')"
+
+# 新側の `line` が有効行に無い場合は、その `line` だけを落として `old_line` で位置を決めさせる
+# （両方入れるとGitLabが `line_code` を作れず400になる）。
+assert_eq "filter_findings_by_valid_lines: GitLabは無効なlineを落としold_lineだけ残す" \
+  'null 3' \
+  "$(printf '%s' '{"findings":[{"path":"new.sh","line":99,"old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" true | jq -r '"\(.post[0].line) \(.post[0].old_line)"')"
+
+assert_eq "filter_findings_by_valid_lines: GitLabは有効なlineを残す" \
+  '2 3' \
+  "$(printf '%s' '{"findings":[{"path":"new.sh","line":2,"old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" true | jq -r '"\(.post[0].line) \(.post[0].old_line)"')"
 
 # ファイル全体にかかる指摘（line未指定）は、そのファイルの有効行の最小値へ寄せる。
 # 新規追加ファイルではhunkが `@@ -0,0 +1,N @@` になるため1行目に一致する。

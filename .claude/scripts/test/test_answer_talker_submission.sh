@@ -84,14 +84,18 @@ printf 'export const a = 1\n' > "$tmp/node_modules/pkg/index.js"
 printf 'built\n'             > "$tmp/dist/out.js"
 printf 'lib\n'               > "$tmp/lib/io.sh"
 printf 'bin\x00\x01\x02data\n' > "$tmp/image.png"
+# **空ファイルを必ずフィクスチャに含める**（issue #6）。`grep -rlI` は1行も無いファイルに
+# マッチしないため、素朴に補集合を取ると0バイトのファイルがバイナリ扱いで消える。
+# `__init__.py` `.gitkeep` 等は演習リポジトリに普通に存在する。
+: > "$tmp/src/__init__.py"
 
 prune_submission_tree "$tmp"
 
 remaining="$( (cd "$tmp" && find . -type f | sed 's|^\./||' | sort) | tr '\n' ' ')"
-assert_eq '生成物ディレクトリとバイナリが削除される' 'README.md lib/io.sh src/main.sh ' "$remaining"
+assert_eq '生成物ディレクトリとバイナリが削除される' 'README.md lib/io.sh src/__init__.py src/main.sh ' "$remaining"
 
 listed="$(list_submission_files "$tmp" | tr '\n' ' ')"
-assert_eq '一覧はルートからの相対パスで返る' 'README.md lib/io.sh src/main.sh ' "$listed"
+assert_eq '一覧はルートからの相対パスで返る' 'README.md lib/io.sh src/__init__.py src/main.sh ' "$listed"
 
 rm -rf "$tmp"
 
@@ -150,6 +154,38 @@ assert_eq '2回目の理由'                'not-found'  "$(printf '%s' "$out" |
 
 out="$(cleanup_main --tmpdir '')"
 assert_eq '空パスは削除しない'         'false'      "$(printf '%s' "$out" | jq -r '.removed')"
+
+# --- fetch_stage1: 途中まで展開したツリーを残さない -------------------------
+#
+# 段2は同じ `$tmpdir/source` へ書き足すため、失敗した段1の残骸を消しておかないと
+# 「段2が取得していない、途中まで書かれたファイル」が混ざったまま degraded:false で返る。
+# Provider側の取得関数を差し替えて、展開の失敗だけを再現する（API呼び出しは伴わない）。
+fetch_repo_archive() { printf 'this is not a tar.gz\n' > "$2"; }
+
+tmp_s1="$(mktemp -d)"
+if fetch_stage1 'refX' "$tmp_s1" >/dev/null 2>&1; then stage1_status=0; else stage1_status=1; fi
+assert_eq '展開に失敗したら段1は失敗する'       '1' "$stage1_status"
+assert_false '展開に失敗したツリーを残さない'   test -d "$tmp_s1/source"
+assert_false '失敗時はアーカイブも残さない'     test -e "$tmp_s1/archive.tar.gz"
+rm -rf "$tmp_s1"
+
+# --- fetch_stage2: 一覧が全件でなければ成功させない -------------------------
+#
+# 欠けたツリーのまま成功すると degraded:false で「全ファイル」として渡り、実在するファイルに
+# ついて「無い」という指摘が出る（issue #6）。段3へ縮退したほうが報告上も正直になる。
+get_repo_file() { printf 'x\n'; }
+
+get_repo_tree() { printf '%s' '{"truncated":true,"files":[{"path":"a.sh","size":null}]}'; }
+tmp_s2="$(mktemp -d)"
+if fetch_stage2 'refX' "$tmp_s2" 100 >/dev/null 2>&1; then stage2_status=0; else stage2_status=1; fi
+assert_eq 'truncated:trueなら段2は失敗する'     '1' "$stage2_status"
+assert_false 'truncated:trueならファイルを取得しない' test -e "$tmp_s2/source/a.sh"
+
+get_repo_tree() { printf '%s' '{"truncated":false,"files":[{"path":"a.sh","size":null}]}'; }
+if fetch_stage2 'refX' "$tmp_s2" 100 >/dev/null 2>&1; then stage2_status=0; else stage2_status=1; fi
+assert_eq 'truncated:falseなら段2は成功する'    '0' "$stage2_status"
+assert_true 'truncated:falseならファイルを取得する' test -e "$tmp_s2/source/a.sh"
+rm -rf "$tmp_s2"
 
 echo "passed=$passed failures=$failures"
 [ "$failures" -eq 0 ]
