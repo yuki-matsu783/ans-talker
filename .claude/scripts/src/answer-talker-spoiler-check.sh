@@ -15,7 +15,7 @@
 # 指摘だけが選択的に drop される（詳細は main 内のコメント）。どちらで動いたかは
 # `materialScope` で返す。
 #
-# 設計上の要点（reports/…answer-talker設計.md の D5）:
+# 設計上の要点（issue #1。正史は .claude/docs/spec/answer-talker.md）:
 #
 #   禁止語 = (正解ファイルの識別子) − (受講者diffに現れる語) − (除外語) − (3文字以下)
 #   混入   = findings本文に、禁止語のいずれかが**単語境界**で現れる

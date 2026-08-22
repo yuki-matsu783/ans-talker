@@ -605,6 +605,11 @@ get_repo_slug | jq -r '.owner, .repo'
 | `add_mr_comment <n> <file>` | `mcp__github__add_issue_comment` | `owner`, `repo`, `issue_number=<PR番号>`, `body=<ファイルの内容>` | PR番号を `issue_number` に渡す（GitHub APIの仕様上、PRもissueとして扱える） |
 | `add_mr_inline_comments <n> <file>` | `mcp__github__pull_request_review_write` | `method="create"` → 指摘ごとに `method="add_comment_to_pending_review"`（`owner`, `repo`, `pullNumber`, `path`, `line`, `side`, `body`）→ `method="submit_pending"`（`event="COMMENT"`） | 敵対的レビュー（issue #77）のインライン投稿。**3段構成で、`submit_pending` まで必ず実行する**（pendingのまま放置すると次回の `create` が失敗し続ける）。途中で失敗したら `method="delete_pending"` で片付ける。CLI版と違い有効行の事前検証が入らないため、diffに含まれない行を指定すると個別に失敗する |
 | `add_issue_comment <n> <file>` | `mcp__github__add_issue_comment` | `owner`, `repo`, `issue_number=<通知先のissue番号>`, `body=<ファイルの内容>` | **`add_mr_comment` と同じツールだが、`issue_number` へ渡すのがPR番号ではなく通知先のissue番号である**（flow-id 5-3の関連issue通知。issue #86）。CLI版はファイルパスを渡すが、MCPは文字列で渡すため本文はReadツール等で読んでから渡す |
+| `get_mr_head_repo <n>` | `mcp__github__pull_request_read` | `method="get"`, `owner`, `repo`, `pullNumber=<n>` | 返却JSONの `head.repo.full_name` が `owner/repo`。フォークから出されたPRで、head側リポジトリを対象にするために使う（issue #6） |
+| `get_repo_size_kb` | `mcp__github__search_repositories` | `query="repo:<owner>/<repo>"` | 結果の `size` がKB単位。**取得できなくても失敗にしない**（設計上「不明」は段1を試す扱い。issue #6） |
+| `get_repo_tree <ref>` | `mcp__github__get_file_contents` | `owner`, `repo`, `path="/"`, `ref` | ディレクトリを指定すると内容の一覧が返るので、再帰的にたどって組み立てる。**CLI版が返す `truncated` に相当する値は得られないため `false` として扱う**（issue #6） |
+| `get_repo_file <ref> <path>` | `mcp__github__get_file_contents` | `owner`, `repo`, `path`, `ref` | ファイル1件の内容。base64のデコードはツール側が行う |
+| `fetch_repo_archive <ref> <out>` | （対応ツール無し） | — | アーカイブ一括取得はMCPに相当機能が無い。**MCP経路では段1を飛ばし、段2（`get_repo_tree` + `get_repo_file`）から始める**（issue #6） |
 | `get_repo_url` | （MCP不要） | — | `git remote get-url origin` の正規化だけでリポジトリの正規URLを導出するプロバイダ非依存の関数のため、MCP経路でもそのまま呼べる（`get_mr_diff_url` / `get_mr_diff_since_url` も同様。issue #44） |
 | `new_issue_branch` / `sync_branch` / `get_branch_work_files` / `get_issue_number_from_branch` / `to_slug` / `test_issue_sections` | （MCP不要） | — | git操作・純粋ロジックのみでCLIに依存しないため、MCP経路でもそのまま呼べる |
 
