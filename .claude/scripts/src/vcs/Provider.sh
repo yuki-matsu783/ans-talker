@@ -782,6 +782,76 @@ get_branch_work_files() {
 
 # --- 敵対的レビュー: インラインコメントの投稿（issue #77） ---
 
+# `[{path, patch}]` の配列（標準入力）から、ファイルごとの「新ファイル側の有効行」を
+# 範囲の配列 `{path: [[start,end],...]}` として返す（純粋関数）。
+#
+# hunkヘッダ `@@ -a,b +c,d @@` の `+c,d` が新ファイル側の範囲で、コメントを付けられるのは
+# この範囲内の行（追加行・コンテキスト行）に限られる。`d` を省略した `@@ -a,b +c @@` は1行を意味する。
+# 純粋な削除hunk（`d` が0）は新ファイル側に行を持たないため除外する。
+#
+# 行を1つずつ列挙せず**範囲**で持つのは、jqへ渡すデータ量を差分の大きさに比例させないため
+# （.claude/rules/shell-script-style.md「大きなJSONを--argjson等でjqへ渡さない」）。
+#
+# **APIの返却形からこの `[{path, patch}]` への正規化は各プロバイダ側が行う**
+# （GitHubは `filename`/`patch`、GitLabは `new_path`/`diff`）。hunkヘッダの解釈だけが
+# プロバイダに依存しない共通部分であり、ここで二重に持たない（issue #6）。
+valid_ranges_from_patches() {
+  jq -c '
+    [
+      .[]
+      | {
+          key: .path,
+          value: [
+            (.patch // "")
+            | split("\n")[]
+            | select(startswith("@@"))
+            | capture("[+](?<s>[0-9]+)(,(?<c>[0-9]+))?")
+            | {s: (.s | tonumber), c: (.c // "1" | tonumber)}
+            | select(.c > 0)
+            | [.s, (.s + .c - 1)]
+          ]
+        }
+    ] | from_entries
+  ' | tr -d '\r'
+}
+
+# findings（標準入力）を、有効行の範囲マップ（第1引数のファイル）と突き合わせて
+# `{"post": [...], "summary": [...]}` へ振り分ける（純粋関数）。
+#
+#   - `line` 未指定のfinding（ファイル全体にかかる指摘）は、そのファイルの**有効行の最小値**へ
+#     割り当てる。新規追加ファイルはhunkが `@@ -0,0 +1,N @@` になるため、これは1行目に一致する。
+#   - 有効行を持たないファイル（diffに現れない・`patch` が省略された）の指摘は summary へ回す。
+#     特別扱いのコードは書かず、有効行が空であることから自動的にそうなる。
+#   - **`old_line` を持つfinding（削除行への指摘）はそのまま post へ通す。** 範囲マップは
+#     新ファイル側しか持たないため判定できず、純粋な削除hunkのファイルでは新側の有効行が
+#     そもそも空になる。ここでsummaryへ落とすと、GitLabが受け付けられる指摘まで捨てることになる。
+#
+# **`path` / `line` / `old_line` しか見ないためプロバイダに依存しない。** GitHub固有の
+# `side` の既定値付与は `github_build_review_payload` が行う（GitLabの `position` は
+# `side` を持たない）。
+filter_findings_by_valid_lines() {
+  local ranges_file="$1"
+  jq -c --slurpfile rangesArr "$ranges_file" '
+    ($rangesArr[0] // {}) as $ranges
+    | def in_ranges($lines; $n): any($lines[]; .[0] <= $n and $n <= .[1]);
+      def resolve($f):
+        if ($f.old_line // null) != null then $f
+        else
+          ($ranges[$f.path] // []) as $lines
+          | if ($lines | length) == 0 then null
+            elif ($f.line // null) == null
+              then ($f + {line: ([$lines[][0]] | min)})
+            elif in_ranges($lines; $f.line)
+              then $f
+            else null
+            end
+        end;
+      reduce (.findings // [])[] as $f ({post: [], summary: []};
+        (resolve($f)) as $r
+        | if $r == null then .summary += [$f] else .post += [$r] end)
+  ' | tr -d '\r'
+}
+
 # インラインで示せなかった指摘の配列（標準入力）から、レビュー本文（サマリ）を組み立てる
 # 純粋関数。プロバイダに依存しないため Provider.sh 側に置く。
 # 指摘が0件でも本文は空にしない（GitHubのレビューは本文が空だと意味を成さないため）。

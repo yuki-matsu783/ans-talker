@@ -244,61 +244,11 @@ github_add_mr_comment() {
 # そのため「投稿できる行かどうか」を投稿前に判定する必要があり、その判定を純粋関数として
 # 切り出している（.claude/scripts/test/test_vcs_provider.sh でテストする）。
 
-# `repos/{owner}/{repo}/pulls/<n>/files` の出力（標準入力）から、ファイルごとの
-# 「新ファイル側の有効行」を範囲の配列 {path: [[start,end],...]} として返す（純粋関数）。
-#
-# hunkヘッダ `@@ -a,b +c,d @@` の `+c,d` が新ファイル側の範囲で、コメントを付けられるのは
-# この範囲内の行（追加行・コンテキスト行）に限られる。`d` を省略した `@@ -a,b +c @@` は1行を意味する。
-# 純粋な削除hunk（`d` が0）は新ファイル側に行を持たないため除外する。
-#
-# 行を1つずつ列挙せず**範囲**で持つのは、jqへ渡すデータ量を差分の大きさに比例させないため
-# （.claude/rules/shell-script-style.md「大きなJSONを--argjson等でjqへ渡さない」）。
+# `repos/{owner}/{repo}/pulls/<n>/files` の出力（標準入力）を、Provider.sh の
+# `valid_ranges_from_patches` が受け取る `[{path, patch}]` へ正規化して渡す（純粋関数）。
+# 出力は `{path: [[start,end],...]}`。hunkヘッダの解釈は共通関数側が持つ。
 github_valid_ranges_from_files_json() {
-  jq -c '
-    [
-      .[]
-      | {
-          key: .filename,
-          value: [
-            (.patch // "")
-            | split("\n")[]
-            | select(startswith("@@"))
-            | capture("[+](?<s>[0-9]+)(,(?<c>[0-9]+))?")
-            | {s: (.s | tonumber), c: (.c // "1" | tonumber)}
-            | select(.c > 0)
-            | [.s, (.s + .c - 1)]
-          ]
-        }
-    ] | from_entries
-  ' | tr -d '\r'
-}
-
-# findings（標準入力）を、有効行の範囲マップ（第1引数のファイル）と突き合わせて
-# {"post": [...], "summary": [...]} へ振り分ける（純粋関数）。
-#
-#   - `line` 未指定のfinding（ファイル全体にかかる指摘）は、そのファイルの**有効行の最小値**へ
-#     割り当てる。新規追加ファイルはhunkが `@@ -0,0 +1,N @@` になるため、これは1行目に一致する。
-#   - 有効行を持たないファイル（diffに現れない・`patch` が省略された）の指摘は summary へ回す。
-#     特別扱いのコードは書かず、有効行が空であることから自動的にそうなる。
-#   - `side` の既定は "RIGHT"。
-github_filter_findings_by_valid_lines() {
-  local ranges_file="$1"
-  jq -c --slurpfile rangesArr "$ranges_file" '
-    ($rangesArr[0] // {}) as $ranges
-    | def in_ranges($lines; $n): any($lines[]; .[0] <= $n and $n <= .[1]);
-      def resolve($f):
-        ($ranges[$f.path] // []) as $lines
-        | if ($lines | length) == 0 then null
-          elif ($f.line // null) == null
-            then ($f + {line: ([$lines[][0]] | min), side: ($f.side // "RIGHT")})
-          elif in_ranges($lines; $f.line)
-            then ($f + {side: ($f.side // "RIGHT")})
-          else null
-          end;
-      reduce (.findings // [])[] as $f ({post: [], summary: []};
-        (resolve($f)) as $r
-        | if $r == null then .summary += [$f] else .post += [$r] end)
-  ' | tr -d '\r'
+  jq -c '[.[] | {path: .filename, patch: (.patch // "")}]' | valid_ranges_from_patches
 }
 
 # 投稿するfindingsの配列（標準入力）とレビュー本文（第1引数のファイル）から、
@@ -335,7 +285,7 @@ github_add_mr_inline_comments() {
 
   gh api "repos/{owner}/{repo}/pulls/${mr_number}/files" --paginate > "$tmpdir/files.json"
   github_valid_ranges_from_files_json < "$tmpdir/files.json" > "$tmpdir/ranges.json"
-  github_filter_findings_by_valid_lines "$tmpdir/ranges.json" < "$findings_file" > "$tmpdir/filtered.json"
+  filter_findings_by_valid_lines "$tmpdir/ranges.json" < "$findings_file" > "$tmpdir/filtered.json"
 
   jq -c '.summary' "$tmpdir/filtered.json" | format_findings_summary "$label" > "$tmpdir/body.md"
   jq -c '.post' "$tmpdir/filtered.json" \

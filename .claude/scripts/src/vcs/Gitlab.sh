@@ -351,8 +351,28 @@ gitlab_summary_post_kind() {
   fi
 }
 
+# `projects/:id/merge_requests/<n>/diffs` の出力（標準入力）を、Provider.sh の
+# `valid_ranges_from_patches` が受け取る `[{path, patch}]` へ正規化して渡す（純粋関数）。
+# 出力は `{path: [[start,end],...]}`。hunkヘッダの解釈は共通関数側が持つ。
+#
+# GitHub版（`gh api --paginate` は配列の応答を1つの配列へ統合する）と違い、`glab api --paginate`
+# はページごとの配列をそのまま並べて出力するため `jq -s` で束ねる（`gitlab_get_mr_changed_files`
+# と同じ扱い）。キー名も `filename`/`patch` ではなく `new_path`/`diff` である。
+gitlab_valid_ranges_from_diffs_json() {
+  jq -s -c '[(add // [])[] | {path: .new_path, patch: (.diff // "")}]' | valid_ranges_from_patches
+}
+
 # findings JSONファイルの指摘を、MRへインラインコメントとして投稿する。
 # 戻り値の形はGitHub版と揃える（呼び出し元にプロバイダ差を意識させない）。
+#
+# **投稿前に有効行で振り分ける点もGitHub版と揃えている**（issue #6）。とくに `line` を持たない
+# finding（ファイル全体にかかる指摘）は、そのファイルの有効行の最小値へ寄せる。以前は
+# `position` に `new_line` が無いままPOSTしてGitLabに拒否され、**GitHubならインラインで付く
+# 指摘がGitLabでは必ずサマリへ回る**という差があった（issue #1 から存在。実測で
+# GitHub `posted:1` に対しGitLab `posted:0, summarized:3`）。
+#
+# 振り分けたうえでPOSTの失敗も従来どおりサマリへ回す（GitLabは失敗理由を区別して返さないため、
+# 有効行の判定では拾えない理由——一過性の接続断など——が残る）。
 #
 # findingごとに `jq` を起動するが、1件ごとにHTTPリクエストが発生する経路であり、
 # 起動コストは無視できる（.claude/rules/shell-script-style.md「外部プロセス起動のコスト」は
@@ -374,8 +394,22 @@ gitlab_add_mr_inline_comments() {
     return 1
   fi
 
-  jq -c '(.findings // [])[]' "$findings_file" > "$tmpdir/findings.jsonl"
-  : > "$tmpdir/failed.jsonl"
+  # 有効行の範囲マップを作る。取得できなかった場合は振り分けを行わず、従来どおり全件の投稿を
+  # 試みる（ここで空のマップを渡すと、全件が「有効行なし」と判定されてサマリへ落ちてしまう）。
+  # ローカルGitLabでは一過性の接続断が実測で頻発するため、この分岐は例外処理ではなく通常経路。
+  if glab api "projects/:id/merge_requests/${mr_number}/diffs" --paginate > "$tmpdir/diffs.json" 2>/dev/null \
+     && [ -s "$tmpdir/diffs.json" ] \
+     && gitlab_valid_ranges_from_diffs_json < "$tmpdir/diffs.json" > "$tmpdir/ranges.json"; then
+    filter_findings_by_valid_lines "$tmpdir/ranges.json" < "$findings_file" > "$tmpdir/filtered.json"
+  else
+    printf 'gitlab_add_mr_inline_comments: MR %s の差分を取得できないため、有効行の判定を行わず全件の投稿を試みます\n' \
+      "$mr_number" >&2
+    jq -c '{post: (.findings // []), summary: []}' "$findings_file" > "$tmpdir/filtered.json"
+  fi
+
+  jq -c '.post[]' "$tmpdir/filtered.json" > "$tmpdir/findings.jsonl"
+  # 有効行で判定した時点でサマリ行きが決まった指摘を、POSTに失敗した指摘と同じ場所へ集める。
+  jq -c '.summary[]' "$tmpdir/filtered.json" > "$tmpdir/failed.jsonl"
   while IFS= read -r finding; do
     gitlab_build_discussion_body "$finding" "$diff_refs" "$label" > "$tmpdir/body.json"
     if glab api "projects/:id/merge_requests/${mr_number}/discussions" \
