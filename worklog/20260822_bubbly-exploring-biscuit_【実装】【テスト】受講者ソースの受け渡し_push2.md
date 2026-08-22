@@ -13,7 +13,7 @@ keywords: [materialScope, forbiddenCount, scope, submissionOnly, degraded, sed, 
 個別作業計画: `plans/【実装】【テスト】受講者ソースの受け渡し.md`
 設計（前提）: `reports/20260821_bubbly-exploring-biscuit_受講者ソースの受け渡しの設計結果.md`
 push1の続き: `worklog/20260821_bubbly-exploring-biscuit_【実装】【テスト】受講者ソースの受け渡し_push1.md`
-push回数: 10
+push回数: 11
 
 ## 試したこと
 
@@ -21,7 +21,7 @@ push1で取得側（`Provider.sh` 3ファイル＋`answer-talker-submission.sh`�
 終えたので、**受け取り側の残り4ファイル**を実装した。
 
 1. `answer-talker-map.sh` — `--submission-root` と `scope`（push1の末尾で着手済み）
-2. `answer-talker-spoiler-check.sh` — `--submission-root` と `materialScope` / `forbiddenCount`
+2. `answer-talker-spoiler-check.sh` — `--submission-root` と `materialScope` / `forbiddenCount` / `subtractedBySubmission`
 3. `.claude/agents/answer-talker-reviewer.md` — 入力仕様・読んでよいもの・手順・`degraded` 分岐
 4. `.claude/skills/answer-talker/SKILL.md` — 手順3bの新設と、手順4/6/7/10/11・mcp表の追随
 
@@ -96,8 +96,8 @@ cleanup → {"removed":true} → 2回目 {"removed":false,"reason":"not-found"}
 
 ### 単体テストは全16スイート合格
 
-`passed=740 failures=0`（`test_answer_talker_map.sh` 16→27、
-`test_answer_talker_spoiler_check.sh` 21→30）。
+`passed=742 failures=0`（`test_answer_talker_map.sh` 16→27、
+`test_answer_talker_spoiler_check.sh` 21→32）。
 
 新しく足したのは、いずれも**「渡さないと落ちる／渡すと残る」を両側から押さえる**形にした。
 片側だけだと「常に落とさない実装」も合格してしまう。
