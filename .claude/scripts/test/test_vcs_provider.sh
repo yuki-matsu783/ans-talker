@@ -531,50 +531,132 @@ assert_eq "github_valid_ranges_from_files_json: 空配列なら空オブジェ�
 ranges_file="$(mktemp)"
 printf '%s' '{"new.sh":[[1,3]],"multi.md":[[14,20],[100,102]],"binary.png":[]}' > "$ranges_file"
 
-assert_eq "github_filter_findings_by_valid_lines: findingsが0件なら両方空" \
+assert_eq "filter_findings_by_valid_lines: findingsが0件なら両方空" \
   '{"post":[],"summary":[]}' \
-  "$(printf '%s' '{"findings":[]}' | github_filter_findings_by_valid_lines "$ranges_file")"
+  "$(printf '%s' '{"findings":[]}' | filter_findings_by_valid_lines "$ranges_file")"
 
-assert_eq "github_filter_findings_by_valid_lines: 有効行内なら投稿対象" \
+assert_eq "filter_findings_by_valid_lines: 有効行内なら投稿対象" \
   '2' \
-  "$(printf '%s' '{"findings":[{"path":"new.sh","line":2}]}' | github_filter_findings_by_valid_lines "$ranges_file" | jq -r '.post[0].line')"
+  "$(printf '%s' '{"findings":[{"path":"new.sh","line":2}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '.post[0].line')"
 
-assert_eq "github_filter_findings_by_valid_lines: sideの既定はRIGHT" \
-  'RIGHT' \
-  "$(printf '%s' '{"findings":[{"path":"new.sh","line":2}]}' | github_filter_findings_by_valid_lines "$ranges_file" | jq -r '.post[0].side')"
+# 削除行への指摘（`old_line`）は、新ファイル側の範囲マップでは判定できない。「判定できないものを
+# どちらへ倒すか」の答えがプロバイダで正反対になるため、第2引数で切り替える（issue #6）。
+#
+# GitHub（既定の `false`）: レビューAPIは `old_line` を受け付けず、`line` を省くと `line:null` の
+# コメントになる。**投稿は原子的で、1件でも不正な行が混ざるとそのMRの投稿が全件失敗する**ため、
+# 新側の有効行が決まらない限りサマリへ回す。
+assert_eq "filter_findings_by_valid_lines: GitHubではold_lineのみの指摘はサマリへ回る" \
+  '0 1' \
+  "$(printf '%s' '{"findings":[{"path":"binary.png","old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '"\(.post | length) \(.summary | length)"')"
+
+# 有効行を持つファイルであっても、`line` が無ければ最小有効行を補って投稿してはいけない
+# （削除行への指摘が無関係な行に付く）。
+assert_eq "filter_findings_by_valid_lines: GitHubではold_lineに有効行を補わない" \
+  '0 1' \
+  "$(printf '%s' '{"findings":[{"path":"new.sh","old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '"\(.post | length) \(.summary | length)"')"
+
+# 新側の `line` が有効行に入っていれば、`old_line` の併記があっても通常どおり投稿する。
+assert_eq "filter_findings_by_valid_lines: GitHubでもlineが有効なら投稿対象" \
+  '1 0' \
+  "$(printf '%s' '{"findings":[{"path":"new.sh","line":2,"old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '"\(.post | length) \(.summary | length)"')"
+
+# GitLab（`true`）: `position` は `old_line` だけでも成立するため投稿へ通す。純粋な削除hunkの
+# ファイルでは新側の有効行が空になるので、落とすと受け付けられる指摘まで捨てることになる。
+assert_eq "filter_findings_by_valid_lines: GitLabではold_lineのみの指摘も投稿対象" \
+  '1 0' \
+  "$(printf '%s' '{"findings":[{"path":"binary.png","old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" true | jq -r '"\(.post | length) \(.summary | length)"')"
+
+assert_eq "filter_findings_by_valid_lines: GitLabではold_lineを持つ指摘にlineを補わない" \
+  'null' \
+  "$(printf '%s' '{"findings":[{"path":"new.sh","old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" true | jq -r '.post[0].line')"
+
+# 新側の `line` が有効行に無い場合は、その `line` だけを落として `old_line` で位置を決めさせる
+# （両方入れるとGitLabが `line_code` を作れず400になる）。
+assert_eq "filter_findings_by_valid_lines: GitLabは無効なlineを落としold_lineだけ残す" \
+  'null 3' \
+  "$(printf '%s' '{"findings":[{"path":"new.sh","line":99,"old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" true | jq -r '"\(.post[0].line) \(.post[0].old_line)"')"
+
+assert_eq "filter_findings_by_valid_lines: GitLabは有効なlineを残す" \
+  '2 3' \
+  "$(printf '%s' '{"findings":[{"path":"new.sh","line":2,"old_line":3}]}' | filter_findings_by_valid_lines "$ranges_file" true | jq -r '"\(.post[0].line) \(.post[0].old_line)"')"
 
 # ファイル全体にかかる指摘（line未指定）は、そのファイルの有効行の最小値へ寄せる。
 # 新規追加ファイルではhunkが `@@ -0,0 +1,N @@` になるため1行目に一致する。
-assert_eq "github_filter_findings_by_valid_lines: line未指定は有効行の最小値へ寄る" \
+assert_eq "filter_findings_by_valid_lines: line未指定は有効行の最小値へ寄る" \
   '1' \
-  "$(printf '%s' '{"findings":[{"path":"new.sh"}]}' | github_filter_findings_by_valid_lines "$ranges_file" | jq -r '.post[0].line')"
+  "$(printf '%s' '{"findings":[{"path":"new.sh"}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '.post[0].line')"
 
-assert_eq "github_filter_findings_by_valid_lines: 既存ファイルのline未指定は1ではなく最小有効行" \
+assert_eq "filter_findings_by_valid_lines: 既存ファイルのline未指定は1ではなく最小有効行" \
   '14' \
-  "$(printf '%s' '{"findings":[{"path":"multi.md"}]}' | github_filter_findings_by_valid_lines "$ranges_file" | jq -r '.post[0].line')"
+  "$(printf '%s' '{"findings":[{"path":"multi.md"}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '.post[0].line')"
 
-assert_eq "github_filter_findings_by_valid_lines: 有効行外はサマリ行き" \
+assert_eq "filter_findings_by_valid_lines: 有効行外はサマリ行き" \
   '1' \
-  "$(printf '%s' '{"findings":[{"path":"multi.md","line":5}]}' | github_filter_findings_by_valid_lines "$ranges_file" | jq -r '.summary | length')"
+  "$(printf '%s' '{"findings":[{"path":"multi.md","line":5}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '.summary | length')"
 
-assert_eq "github_filter_findings_by_valid_lines: 2つ目のhunk内なら投稿対象" \
+assert_eq "filter_findings_by_valid_lines: 2つ目のhunk内なら投稿対象" \
   '101' \
-  "$(printf '%s' '{"findings":[{"path":"multi.md","line":101}]}' | github_filter_findings_by_valid_lines "$ranges_file" | jq -r '.post[0].line')"
+  "$(printf '%s' '{"findings":[{"path":"multi.md","line":101}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '.post[0].line')"
 
-assert_eq "github_filter_findings_by_valid_lines: diffに無いパスはサマリ行き" \
+assert_eq "filter_findings_by_valid_lines: diffに無いパスはサマリ行き" \
   '0 1' \
-  "$(printf '%s' '{"findings":[{"path":"not-in-diff.md","line":1}]}' | github_filter_findings_by_valid_lines "$ranges_file" | jq -r '"\(.post | length) \(.summary | length)"')"
+  "$(printf '%s' '{"findings":[{"path":"not-in-diff.md","line":1}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '"\(.post | length) \(.summary | length)"')"
 
-assert_eq "github_filter_findings_by_valid_lines: 有効行が空のファイルはサマリ行き" \
+assert_eq "filter_findings_by_valid_lines: 有効行が空のファイルはサマリ行き" \
   '0 1' \
-  "$(printf '%s' '{"findings":[{"path":"binary.png"}]}' | github_filter_findings_by_valid_lines "$ranges_file" | jq -r '"\(.post | length) \(.summary | length)"')"
+  "$(printf '%s' '{"findings":[{"path":"binary.png"}]}' | filter_findings_by_valid_lines "$ranges_file" | jq -r '"\(.post | length) \(.summary | length)"')"
 
-assert_eq "github_filter_findings_by_valid_lines: findingsキーが無くても落ちない" \
+assert_eq "filter_findings_by_valid_lines: findingsキーが無くても落ちない" \
   '{"post":[],"summary":[]}' \
-  "$(printf '%s' '{}' | github_filter_findings_by_valid_lines "$ranges_file")"
+  "$(printf '%s' '{}' | filter_findings_by_valid_lines "$ranges_file")"
+
+# --- GitLab側の有効行の算出（issue #6） ---
+#
+# GitHubと同じ振り分けを行うための正規化。`glab api --paginate` はページごとの配列をそのまま
+# 並べて出力するため、複数配列を束ねられることも確かめる。
+fixture_diffs_json='[
+  {"new_path":"new.sh","old_path":"new.sh","diff":"@@ -0,0 +1,3 @@\n+a\n+b\n+c"},
+  {"new_path":"multi.md","old_path":"multi.md","diff":"@@ -1,5 +14,7 @@ ctx\n ...\n@@ -30,2 +100,3 @@\n x"}
+]
+[
+  {"new_path":"renamed.sh","old_path":"old.sh","diff":""}
+]'
+
+assert_eq "gitlab_valid_ranges_from_diffs_json: 新規ファイルは1行目から有効" \
+  '[[1,3]]' \
+  "$(printf '%s' "$fixture_diffs_json" | gitlab_valid_ranges_from_diffs_json | jq -c '.["new.sh"]')"
+
+assert_eq "gitlab_valid_ranges_from_diffs_json: 複数hunkを連結する" \
+  '[[14,20],[100,102]]' \
+  "$(printf '%s' "$fixture_diffs_json" | gitlab_valid_ranges_from_diffs_json | jq -c '.["multi.md"]')"
+
+# リネームのみの変更ではGitLabが差分本文を返さない（実測。MR !7）。有効行が空になり、
+# その指摘はサマリへ回る。
+assert_eq "gitlab_valid_ranges_from_diffs_json: diffが空文字列なら有効行も空" \
+  '[]' \
+  "$(printf '%s' "$fixture_diffs_json" | gitlab_valid_ranges_from_diffs_json | jq -c '.["renamed.sh"]')"
+
+assert_eq "gitlab_valid_ranges_from_diffs_json: ページをまたいだファイルも含む" \
+  '3' \
+  "$(printf '%s' "$fixture_diffs_json" | gitlab_valid_ranges_from_diffs_json | jq -r 'length')"
+
+assert_eq "gitlab_valid_ranges_from_diffs_json: 空配列なら空オブジェクト" \
+  '{}' \
+  "$(printf '%s' '[]' | gitlab_valid_ranges_from_diffs_json)"
+
+# GitHub版とGitLab版が、同じdiffに対して同じ範囲マップを返すこと（issue #6 で揃えた点そのもの）。
+assert_eq "有効行の算出はプロバイダ間で一致する" \
+  "$(printf '%s' '[{"filename":"new.sh","patch":"@@ -0,0 +1,3 @@\n+a"}]' | github_valid_ranges_from_files_json)" \
+  "$(printf '%s' '[{"new_path":"new.sh","diff":"@@ -0,0 +1,3 @@\n+a"}]' | gitlab_valid_ranges_from_diffs_json)"
 
 review_body_file="$(mktemp)"
 printf 'レビュー本文' > "$review_body_file"
+
+# `side` はGitHubのレビューAPI固有のキーで、GitLabの `position` は持たない。共通の
+# `filter_findings_by_valid_lines` ではなくGitHubのペイロード組み立て側が既定値を与える。
+assert_eq "github_build_review_payload: sideの既定はRIGHT" \
+  'RIGHT' \
+  "$(printf '%s' '[{"path":"a.sh","line":1,"title":"T","body":"B"}]' | github_build_review_payload "$review_body_file" | jq -r '.comments[0].side')"
 
 assert_eq "github_build_review_payload: 投稿0件でも本文だけのレビューになる" \
   'COMMENT 0 レビュー本文' \

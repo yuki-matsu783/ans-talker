@@ -8,7 +8,7 @@
 #   answer-talker-reference.sh cleanup --tmpdir <パス>
 #     → {"removed":true|false,"reason":"…"}
 #
-# 設計上の要点（reports/…answer-talker設計.md の D3）:
+# 設計上の要点（issue #1。正史は .claude/docs/spec/answer-talker.md）:
 #   - **ローカルパスは clone しない。** `git clone --depth 1` は局所cloneでは無視され
 #     （`warning: --depth is ignored in local clones`）浅くならないうえ、正解が素のディレクトリ
 #     （gitリポジトリでない）の場合は clone 自体が失敗する。読み取り専用でそのまま使う。

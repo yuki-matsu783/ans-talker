@@ -5,10 +5,17 @@
 #
 # 使い方:
 #   answer-talker-spoiler-check.sh --findings <findings.json> --reference-root <正解ルート> \
-#       --diff <diff.json> --out <検査後findings.json>
-#     → {"kept":N,"dropped":M,"drops":[{"title":"…","words":["…"]}]}
+#       --diff <diff.json> --out <検査後findings.json> [--submission-root <受講者ルート>]
+#     → {"kept":N,"dropped":M,"materialScope":"full"|"diff","forbiddenCount":K,
+#        "subtractedBySubmission":S,"drops":[{"title":"…","words":["…"]}]}
 #
-# 設計上の要点（reports/…answer-talker設計.md の D5）:
+# `--submission-root` を渡すと、差し引く材料が「受講者diffに現れる語」から
+# 「受講者ソース全体に現れる語」へ広がる（issue #6）。**これは任意の改善ではなく必須の追随**で、
+# 渡さないままサブエージェントへ受講者ソースを見せると、hunkに現れない受講者ファイルに基づく
+# 指摘だけが選択的に drop される（詳細は main 内のコメント）。どちらで動いたかは
+# `materialScope` で返す。
+#
+# 設計上の要点（issue #1。正史は .claude/docs/spec/answer-talker.md）:
 #
 #   禁止語 = (正解ファイルの識別子) − (受講者diffに現れる語) − (除外語) − (3文字以下)
 #   混入   = findings本文に、禁止語のいずれかが**単語境界**で現れる
@@ -113,15 +120,17 @@ find_leaked_words() {
 
 usage() {
   printf 'usage: answer-talker-spoiler-check.sh --findings <findings.json> \\\n' >&2
-  printf '         --reference-root <正解ルート> --diff <diff.json> --out <検査後findings.json>\n' >&2
+  printf '         --reference-root <正解ルート> --diff <diff.json> --out <検査後findings.json> \\\n' >&2
+  printf '         [--submission-root <受講者ルート>]\n' >&2
 }
 
 main() {
-  local findings_file="" root="" diff_file="" out_file=""
+  local findings_file="" root="" submission_root="" diff_file="" out_file=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --findings) findings_file="${2:-}"; shift 2 ;;
       --reference-root) root="${2:-}"; shift 2 ;;
+      --submission-root) submission_root="${2:-}"; shift 2 ;;
       --diff) diff_file="${2:-}"; shift 2 ;;
       --out) out_file="${2:-}"; shift 2 ;;
       -h|--help) usage; return 2 ;;
@@ -141,6 +150,13 @@ main() {
     printf 'answer-talker-spoiler-check: --reference-root に既存のディレクトリを指定してください\n' >&2
     return 2
   fi
+  # **存在しないパスを黙って無視しない。** 無視すると `materialScope` が `diff` へ戻り、
+  # issue #6 で問題にした「新しく見えるようになったものについての指摘だけが選択的に落ちる」
+  # 状態へ、呼び出し側が気づかないまま逆戻りする。
+  if [ -n "$submission_root" ] && [ ! -d "$submission_root" ]; then
+    printf 'answer-talker-spoiler-check: --submission-root に既存のディレクトリを指定してください\n' >&2
+    return 2
+  fi
 
   local reference_words submission_words
   # 正解側の識別子。ファイル数に比例して外部コマンドを起動しないよう、`grep -r` へ1回だけ通す。
@@ -154,8 +170,48 @@ main() {
     submission_words=""
   fi
 
+  # **受講者ソース全体を差し引き集合へ加える（issue #6）。**
+  #
+  # これは任意の改善ではなく、**本変更に伴う必須の追随**である。差し引く材料が差分だけだと、
+  # issue #6 の目的である「hunkに現れない受講者ファイルに基づく指摘」は、その識別子が
+  # diffに現れないため差し引かれず、正解側に同名の識別子があれば**必ず禁止語に一致して
+  # drop される**（実測で確認済み）。つまり受講者ソースを渡した瞬間、**新しく見えるように
+  # なったものについての指摘だけが選択的に落ちる**。
+  #
+  # 見逃しは増えない。差し引かれるのは「受講者が自分のリポジトリに実際に書いている語」であり、
+  # それが指摘本文に現れることは正解からの転記ではないため（DDR 0061 の「誤検知の側へ倒す」
+  # という方針とは矛盾しない）。**ただしそれは、生成物・第三者コードを除外してあることが前提**
+  # である（`answer-talker-submission.sh` が展開直後にツリーから削除している）。除外を怠ると、
+  # 正解にしか無い識別子がたまたま依存ライブラリに含まれていればネタバレ検査を素通りする。
+  local material_scope='diff' submission_source_words=""
   declare -gA ATR_FORBIDDEN=()
+
+  # **禁止語の語数を可視化する。** このスクリプトは元々「指摘が落ちすぎて実質何も出なくなる」
+  # 壊れ方に備えて drop 件数を返しているが、材料を広げたことで**逆方向の壊れ方**（差し引き
+  # すぎて禁止語が消え、検査が実質無効になる）が生まれる。語数が無いと、`dropped: 0` が
+  # 「転記が無かった」のか「禁止語が空だった」のかを区別できない。
+  #
+  # `subtractedBySubmission` は**受講者ソースを加えたことで禁止語から消えた語数**である。
+  # `forbiddenCount` だけだと「元から少なかった」のか「広げた結果ここまで減った」のかが
+  # 区別できず、材料の広げすぎに気づけない。差分だけの集合を一度組んでから広げて差を取る
+  # （`build_forbidden_set` は外部コマンドを呼ばない純粋な処理なので、2回組んでもforkは増えない）。
+  local forbidden_count subtracted_by_submission=0
   build_forbidden_set "$reference_words" "$submission_words"
+  forbidden_count="${#ATR_FORBIDDEN[@]}"
+
+  if [ -n "$submission_root" ] && [ -d "$submission_root" ]; then
+    material_scope='full'
+    submission_source_words="$(grep -rohE --binary-files=without-match --exclude-dir=.git \
+      '[A-Za-z_][A-Za-z0-9_]*' "$submission_root" 2>/dev/null | sort -u || true)"
+    if [ -n "$submission_words" ]; then
+      submission_words="$(printf '%s\n%s\n' "$submission_words" "$submission_source_words" | sort -u)"
+    else
+      submission_words="$submission_source_words"
+    fi
+    build_forbidden_set "$reference_words" "$submission_words"
+    subtracted_by_submission=$(( forbidden_count - ${#ATR_FORBIDDEN[@]} ))
+    forbidden_count="${#ATR_FORBIDDEN[@]}"
+  fi
 
   # findings を「連番<TAB>タイトル<TAB>本文（改行は空白へ）」の1行1件で受ける（jqの起動は1回）。
   local -a drop_index=() drop_title=() drop_words=()
@@ -196,6 +252,9 @@ main() {
       {
         kept: $kept,
         dropped: $dropped,
+        materialScope: $materialScope,
+        forbiddenCount: $forbiddenCount,
+        subtractedBySubmission: $subtractedBySubmission,
         drops: [
           range(0; ($ARGS.positional | length) / 2)
           | { title: $ARGS.positional[. * 2], words: ($ARGS.positional[. * 2 + 1] | split(" ")) }
@@ -203,10 +262,16 @@ main() {
       }
     '
   if [ "${#report[@]}" -gt 0 ]; then
-    jq -nc --argjson kept "$kept" --argjson dropped "${#drop_index[@]}" \
+    jq -nc --arg materialScope "$material_scope" \
+      --argjson forbiddenCount "$forbidden_count" \
+      --argjson subtractedBySubmission "$subtracted_by_submission" \
+      --argjson kept "$kept" --argjson dropped "${#drop_index[@]}" \
       --args "$summary_filter" -- "${report[@]}" | tr -d '\r'
   else
-    jq -nc --argjson kept "$kept" --argjson dropped 0 \
+    jq -nc --arg materialScope "$material_scope" \
+      --argjson forbiddenCount "$forbidden_count" \
+      --argjson subtractedBySubmission "$subtracted_by_submission" \
+      --argjson kept "$kept" --argjson dropped 0 \
       --args "$summary_filter" -- | tr -d '\r'
   fi
 }

@@ -1,10 +1,10 @@
 ---
 name: answer-talker
-description: 開発演習で、受講者が初期状態から実装を進めたMR/PRを、別途用意された「正解ソース」と照合してレビューし、指摘をMRへインラインコメントとして投稿するために使う。正解のコードをそのまま提示するのではなく、分割方針・責務の置き方・命名やルールの考え方が正解と同じ方向へ向かうような**概念的な指摘**を返す。`/answer-talker <MR番号> --reference <URL|パス> [--repo <対象>]` の形で起動する。正解ソースは別リポジトリのURL（shallow cloneする）とローカルディレクトリの2形態を受け付ける。正解のコード片が指摘へ混入していないかを投稿直前に機械的に検査する。
+description: 開発演習で、受講者が初期状態から実装を進めたMR/PRを、別途用意された「正解ソース」と照合してレビューし、指摘をMRへインラインコメントとして投稿するために使う。正解のコードをそのまま提示するのではなく、分割方針・責務の置き方・命名やルールの考え方が正解と同じ方向へ向かうような**概念的な指摘**を返す。`/answer-talker <MR番号> --reference <URL|パス> [--repo <対象>]` の形で起動する。正解ソースは別リポジトリのURL（shallow cloneする）とローカルディレクトリの2形態を受け付ける。**受講者のソースコードも全体を取得してサブエージェントへ渡す**（アーカイブ1回→ファイル単位→hunkのみ、の3段で縮退する）。正解のコード片が指摘へ混入していないかを投稿直前に機械的に検査する。
 title: 演習MRの正解照合レビュー（answer-talker）
 type: skill
 tags: [review, answer-talker, 演習]
-keywords: [演習, 正解ソース, インラインコメント, ネタバレ検査, 別解, findings, use_target_repo, get_mr_changed_files, 後始末]
+keywords: [演習, 正解ソース, 受講者ソース, submission, 縮退, degraded, インラインコメント, ネタバレ検査, 別解, findings, use_target_repo, get_mr_changed_files, 後始末]
 ---
 
 # answer-talker スキル
@@ -97,15 +97,48 @@ reference_tmpdir="$(printf '%s' "$ref_json" | jq -r '.tmpdir')"
 ローカルパスを指定した場合は**cloneせずそのまま読む**（`cleanup:false` が返る）。
 その場合、**正解ディレクトリを書き換えてはいけない**（サブエージェントは読み取り専用）。
 
+## 手順3b: 受講者ソースを取得する（**飛ばさない**）
+
+```bash
+sub_json="$(bash .claude/scripts/src/answer-talker-submission.sh resolve \
+  --mr <MR番号> [--repo "$repo"])"
+submission_root="$(printf '%s' "$sub_json" | jq -r '.root')"
+submission_tmpdir="$(printf '%s' "$sub_json" | jq -r '.tmpdir')"
+submission_degraded="$(printf '%s' "$sub_json" | jq -r '.degraded')"
+```
+
+**このスキルの観点はリポジトリ全体の構造であり、差分だけでは「変更していないファイルに責務が
+置かれている」形が見えない**（issue #6）。正解は全部読めるのに受講者はhunkしか見えない、という
+非対称を解消するのがこの手順である。
+
+- **`--repo` を手順2と同じ値で渡す。** このスクリプトは別プロセスなので、手順2の
+  `use_target_repo` の効果（プロバイダのキャッシュ・環境変数）を引き継がない。
+- 取得は**3段で縮退する**。`stage` が `1`（アーカイブ1回）→ `2`（ファイル単位）→
+  `3`（hunkのみ）。
+- **段3は失敗ではない。** `degraded:true` / `root:null` を**終了コード0**で返すので、
+  ここで処理を止めない。以降の手順は `degraded` の値で分岐する。
+- 生成物・依存ライブラリ（`node_modules` 等）・バイナリは、**展開直後にツリーから削除済み**。
+  一覧・`mapping`・禁止語のすべてが同じツリーを見る。
+- `truncated` が真なら、一覧が全件でないことを**報告に含める**（手順11）。
+- **`tmpdir` は手順10の後始末で必ず使う。** 捨てないこと。
+
 ## 手順4: 受講者と正解のファイルを対応付ける
 
 ```bash
+map_args=()
+[ "$submission_root" != "null" ] && map_args=(--submission-root "$submission_root")
 bash .claude/scripts/src/answer-talker-map.sh \
-  --diff "$tmpdir/diff.json" --reference-root "$reference_root" > "$tmpdir/mapping.json"
+  --diff "$tmpdir/diff.json" --reference-root "$reference_root" \
+  "${map_args[@]}" > "$tmpdir/mapping.json"
 ```
 
 `referenceOnly`（正解側にしかないファイル）が、**受講者がまだ作っていない分割単位**の候補になる。
 ただし別解の可能性もあるため、**意味づけはここでは行わない**（サブエージェントの判断に委ねる）。
+
+**`--submission-root` を渡すと、対応付けの左辺が「受講者の変更ファイル」から「受講者の全ファイル」
+へ広がる。** これに伴い `submissionOnly` の意味が変わる（「今回追加したファイル」→「正解に無い
+ファイル」）ため、どちらで動いたかが出力の `scope`（`full` / `diff`）で返る。**サブエージェント
+定義はこの値で読み方を変える**ので、渡した／渡さないを自然言語で伝え直さない。
 
 ## 手順5: 投稿の可否を確認する（承認モデル）
 
@@ -120,11 +153,26 @@ bash .claude/scripts/src/answer-talker-map.sh \
 
 ## 手順6: サブエージェントへレビューさせる
 
-Agentツールで `answer-talker-reviewer` を起動し、手順2〜4で作った3つを1つのJSONにまとめて渡す
-（`diff` / `reference` / `mapping`）。
+Agentツールで `answer-talker-reviewer` を起動し、手順2〜4で作った4つを1つのJSONにまとめて渡す
+（`diff` / `reference` / `submission` / `mapping`）。
 
-**正解ファイルの中身はプロンプトへ載せない。** サブエージェントに `reference.root` を渡し、
-Readで必要な範囲だけ読ませる。載せるほど転記のリスクが上がり、正解の規模も未知のため。
+```json
+{
+  "diff": { "…手順2の内容…" },
+  "reference": {"root": "…", "files": ["…"]},
+  "submission": {"root": "…|null", "files": ["…"], "degraded": false, "truncated": false},
+  "mapping": { "…手順4の出力（scope を含む）…" }
+}
+```
+
+- **正解ファイル・受講者ファイルの中身はプロンプトへ載せない。** ルートパスを渡し、Readで
+  必要な範囲だけ読ませる。載せるほど転記のリスクが上がり、規模も未知のため。
+- **`submission` を省略しない。** 省略すると、エージェント定義の「読んでよいもの」が再び実態と
+  食い違う（issue #6 が問題にした状態そのもの）。段3のときも
+  `{"root":null,"files":[],"degraded":true,"truncated":false}` を渡す。
+- **`degraded` を自然言語で言い換えて渡さない。** エージェント定義はこのフラグの値だけで
+  読み方を分岐する（散文の条件分岐は読み違えが起きる）。
+- 受講者のコミットメッセージ・issue・MRの説明文は渡さない（実装者の意図が混入する）。
 
 サブエージェントは findings JSON を返す（スキーマは `.claude/agents/answer-talker-reviewer.md`）。
 `$tmpdir/findings.json` へ保存する。
@@ -132,14 +180,29 @@ Readで必要な範囲だけ読ませる。載せるほど転記のリスクが�
 ## 手順7: ネタバレ検査（**飛ばさない**）
 
 ```bash
+check_args=()
+[ "$submission_root" != "null" ] && check_args=(--submission-root "$submission_root")
 bash .claude/scripts/src/answer-talker-spoiler-check.sh \
   --findings "$tmpdir/findings.json" --reference-root "$reference_root" \
-  --diff "$tmpdir/diff.json" --out "$tmpdir/findings-checked.json"
+  --diff "$tmpdir/diff.json" "${check_args[@]}" --out "$tmpdir/findings-checked.json"
 ```
 
-- 戻り値は `{"kept":N,"dropped":M,"drops":[{"title":…,"words":[…]}]}`。
+- 戻り値は `{"kept":N,"dropped":M,"materialScope":"full"|"diff","forbiddenCount":K,`
+  `"subtractedBySubmission":S,"drops":[…]}`。
+- **`--submission-root` の省略は任意の劣化ではない。** 差し引く材料が差分だけだと、
+  手順3b で新しく見えるようになったもの（hunkに現れない受講者ファイル）に基づく指摘**だけが
+  選択的に落ちる**。その識別子はdiffに現れないため差し引かれず、正解側に同名の識別子があれば
+  必ず禁止語に一致するためである（実測で確認済み）。渡したかどうかは `materialScope` で返る。
+- 見逃しは増えない。差し引かれるのは受講者が自分のリポジトリに実際に書いている語であり、
+  指摘本文に現れても正解からの転記ではない（DDR 0061「誤検知の側へ倒す」と矛盾しない）。
+  **ただしそれは、生成物・第三者コードが除外済みであることが前提**（手順3bが担保している）。
 - **落とした件数と反応した語を必ず報告する。** この検査は誤検知の側へ倒してあるため、
   「指摘が落ちすぎて実質何も出ない」という壊れ方をする。可視化しないと気づけない。
+- **`forbiddenCount` と `subtractedBySubmission` も報告する。** 材料を広げたことで**逆方向の
+  壊れ方**（差し引きすぎて禁止語が空になり、検査が実質無効になる）が生まれた。語数が無いと
+  `dropped: 0` が「転記が無かった」のか「禁止語が空だった」のかを区別できない。
+  `subtractedBySubmission`（受講者ソースを加えて消えた語数）が `forbiddenCount` に対して
+  極端に大きい場合は、**受講者ソース側に生成物・第三者コードが混ざっていないかを疑う**。
 - **`kept` が0なら投稿しない**（空のレビューを投稿しない）。その旨を報告して手順10へ進む。
 
 ## 手順8: 投稿する指摘を選別する
@@ -173,17 +236,26 @@ add_mr_inline_comments <MR番号> "$tmpdir/findings-post.json" '演習レビュ�
 ```bash
 [ "$reference_tmpdir" != "null" ] && \
   bash .claude/scripts/src/answer-talker-reference.sh cleanup --tmpdir "$reference_tmpdir"
+[ "$submission_tmpdir" != "null" ] && \
+  bash .claude/scripts/src/answer-talker-submission.sh cleanup --tmpdir "$submission_tmpdir"
 rm -rf "$tmpdir"
 ```
 
-`cleanup` は冪等で、`resolve` が作った一時ディレクトリ以外は削除しない。
-**手順6〜9のどこで失敗しても、この手順は実行する。**
+どちらの `cleanup` も冪等で、それぞれの `resolve` が置いたマーカーがある一時ディレクトリしか
+削除しない。**手順3b〜9のどこで失敗しても、この手順は実行する。**
+
+**受講者ソースの後始末を省略しない。** 受講者リポジトリの全ファイルが一時ディレクトリに
+残り続けることになり、実行のたびに増える。
 
 ## 手順11: 結果を報告する
 
-- 投稿件数・サマリへ回った件数・**ネタバレ検査で落とした件数と反応した語**・報告のみに留めた件数。
+- 投稿件数・サマリへ回った件数・**ネタバレ検査で落とした件数と反応した語**・
+  **禁止語の語数（`forbiddenCount`）**・報告のみに留めた件数。
+- **受講者ソースをどの段で取得したか（`stage`）。** `degraded` が真だった場合は、
+  **その理由（`reason`）と、レビューがhunkの範囲に限られたこと**を明示する。
+  取得できなかったことを黙って伏せると、指摘が少ない結果を「問題が無かった」と読み違える。
 - 報告のみの指摘は、この会話に**内容を書き出す**（MRを見ても残らないため）。
-- `truncatedFiles` / `capped` が立っていた場合はその事実。
+- `truncatedFiles` / `capped`（手順2）・`truncated`（手順3b）が立っていた場合はその事実。
 - 指摘が0件だった場合は、その旨（水増ししない）。
 
 ## CLI不在時（`get_vcs_access_mode` が `mcp`）の読み替え
@@ -193,8 +265,9 @@ GitHubのみ。GitLabは対象外（DDR 0027）。WebFetch・curlへはフォー
 | 手順 | 読み替え |
 |---|---|
 | 手順2 | `get_mr_changed_files` → `mcp__github__pull_request_read`（`method="get_files"` で変更ファイル、`method="get"` で base/head/headSha）。`owner`/`repo` は `--repo` の値、省略時は `get_repo_slug` |
+| 手順3b | `answer-talker-submission.sh` は内部で `gh`/`glab` を呼ぶため**そのままでは動かない**。`mcp__github__get_file_contents`（`owner`/`repo`/`path`/`ref`）でファイルを取得し、同じ形のJSON（`root`/`files`/`degraded`/`truncated`）を自分で組み立てる。取得できない場合は**段3として `degraded:true` で続行する**（スキル自体を中止しない） |
+| 手順3・4・7 | 読み替え不要（`git` とローカルのスクリプトのみで、`gh`/`glab` を呼ばない） |
 | 手順9 | `add_mr_inline_comments` → `mcp__github__pull_request_review_write`（`method="create"` → 指摘ごとに `add_comment_to_pending_review` → **必ず `submit_pending`**。失敗したら `delete_pending`） |
-| 手順3・4・7 | 読み替え不要（ローカルのスクリプトのみ） |
 
 ## してはいけないこと
 
@@ -203,8 +276,15 @@ GitHubのみ。GitLabは対象外（DDR 0027）。WebFetch・curlへはフォー
 - **正解のコード片・正解にしか存在しない識別子を、コメント本文や会話へのまとめへ書くこと。**
 - **`--repo` を省略したまま、別リポジトリのつもりで実行すること**（手順1の表示を省略しない）。
 - **手順9でラベル（第3引数）を省略すること**（「敵対的レビュー」として投稿されてしまう）。
-- 正解ディレクトリ（ローカルパス指定時）を書き換えること。
-- 手順10（後始末）を飛ばすこと。
+- **手順3b（受講者ソースの取得）を飛ばし、差分だけでサブエージェントを起動すること。**
+  「変更していないファイルに責務が置かれている」形が見えなくなり、issue #6 以前の状態へ戻る。
+- **手順3bが `degraded:true` を返したことを理由に、スキル自体を中止すること。**
+  段3は失敗ではなく、hunkの範囲で続行して報告するのが正しい。
+- **手順7で `--submission-root` を省略すること**（新しく見えるようになったものについての指摘
+  だけが選択的に落ちる）。
+- 正解ディレクトリ（ローカルパス指定時）を書き換えること。受講者ソースの一時ディレクトリも
+  同様に書き換えない（サブエージェントは読み取り専用）。
+- 手順10（後始末）を飛ばすこと。**正解側だけ片付けて受講者側を残さないこと。**
 - スレッドの解決（resolve）操作を行うこと（レビュアー側の操作）。
 - 指摘が0件のときに、水増しして投稿すること。
 - 受講者のコミットメッセージ・issueをサブエージェントへ渡すこと（実装者の意図が混入する）。

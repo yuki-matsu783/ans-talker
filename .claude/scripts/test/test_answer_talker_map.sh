@@ -100,5 +100,58 @@ assert_eq "同名が複数あっても、パス一致があればそちらを採
 assert_eq "パス一致した場合、残りの同名ファイルはreferenceOnly" \
   "$(printf 'referenceOnly\tlib/read.sh')" "$(rows_of referenceOnly "$out")"
 
+# --- scope（submissionOnly の意味の切り替え。issue #6） ------------------
+#
+# **`submissionOnly` は scope によって意味が変わる。** `full` は「正解に無いファイル」、
+# `diff` は「今回追加したファイル」。サブエージェント定義はこの値で読み方を変えるため、
+# 値が欠けたり既定へ落ちたりしないことを機械的に押さえる。
+
+out="$(printf 'submissionOnly\tREADME.md\n' | mapping_lines_to_json '/ref' 'a.sh')"
+assert_eq "scopeを渡さないとdiff（従来の呼び出しが壊れない）" \
+  "diff" "$(printf '%s' "$out" | jq -r '.scope')"
+
+out="$(printf 'submissionOnly\tREADME.md\n' | mapping_lines_to_json '/ref' 'a.sh' 'full')"
+assert_eq "scope=fullを渡せる" "full" "$(printf '%s' "$out" | jq -r '.scope')"
+assert_eq "scope=fullでもsubmissionOnlyの中身は変わらない" \
+  "README.md" "$(printf '%s' "$out" | jq -r '.submissionOnly[0]')"
+
+# --- main の --submission-root（ファイルI/Oのみ。API呼び出しは伴わない） ---
+#
+# **受講者の全ファイルと突き合わせる**ようになったことを、実際のディレクトリで確かめる。
+# hunkに現れないファイル（未変更のまま責務を持っているファイル）が対応付けに入ることが要点。
+
+map_tmp="$(mktemp -d)"
+mkdir -p "$map_tmp/ref" "$map_tmp/sub"
+printf 'x\n' > "$map_tmp/ref/main.sh"
+printf 'x\n' > "$map_tmp/ref/io.sh"
+printf 'x\n' > "$map_tmp/sub/main.sh"
+printf 'x\n' > "$map_tmp/sub/README.md"   # 今回のdiffに現れない受講者ファイル
+cat > "$map_tmp/diff.json" <<'EOF'
+{"files":[{"path":"main.sh","status":"modified"},{"path":"old.sh","status":"removed"}]}
+EOF
+
+map_run() { bash "$repo_root/.claude/scripts/src/answer-talker-map.sh" \
+  --diff "$map_tmp/diff.json" --reference-root "$map_tmp/ref" "$@"; }
+
+map_diff="$(map_run)"
+assert_eq "渡さないとscopeはdiff"         "diff" "$(printf '%s' "$map_diff" | jq -r '.scope')"
+assert_eq "渡さないとREADME.mdは現れない" "0"    "$(printf '%s' "$map_diff" | jq -r '.submissionOnly | length')"
+assert_eq "削除ファイルは対応付けの対象外" "1"   "$(printf '%s' "$map_diff" | jq -r '.matched | length')"
+
+map_full="$(map_run --submission-root "$map_tmp/sub")"
+assert_eq "渡すとscopeはfull"              "full"      "$(printf '%s' "$map_full" | jq -r '.scope')"
+assert_eq "hunk外のファイルがsubmissionOnlyに入る" "README.md" "$(printf '%s' "$map_full" | jq -r '.submissionOnly[0]')"
+assert_eq "正解にしか無いファイルはreferenceOnly"  "io.sh"     "$(printf '%s' "$map_full" | jq -r '.referenceOnly[0]')"
+
+# **存在しないパスを黙って無視しない**（無視すると scope が diff へ逆戻りする）。
+if map_run --submission-root "$map_tmp/nope" >/dev/null 2>&1; then
+  map_status=0
+else
+  map_status=$?
+fi
+assert_eq "存在しない--submission-rootは終了コード2" "2" "$map_status"
+
+rm -rf "$map_tmp"
+
 echo "passed=$passed failures=$failures"
 [[ "$failures" -eq 0 ]]

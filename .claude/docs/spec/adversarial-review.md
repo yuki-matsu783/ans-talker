@@ -227,6 +227,10 @@ add_mr_inline_comments <MR番号> <findings JSONファイル>   # → {"posted":
   新規追加ファイルはhunkが `@@ -0,0 +1,N @@` になるため、これは1行目に一致する。
 - 有効行を持たないファイル（diffに現れない・`patch` が省略された）の指摘はサマリへ回る。
   これは特別扱いのコードではなく、有効行が空であることから自動的にそうなる。
+- **`old_line` だけを持つ指摘（削除行への指摘）もサマリへ回す。** GitHubのレビューAPIは
+  `old_line` を受け付けず、`line` を省くと `line: null` のコメントになる。投稿がアトミックで
+  ある以上、これが1件混ざるとそのMRのインライン投稿が全件失敗する。エージェント定義は
+  「削除行は `old_line` のみ」と指示しているため、**これは例外ではなく通常運転で出る形**である。
 - **提出済みのレビューは削除できない**（個々のコメントは削除できる）。
 
 ### GitLabの投稿
@@ -249,6 +253,15 @@ add_mr_inline_comments <MR番号> <findings JSONファイル>   # → {"posted":
 
   違反すると `400 Bad request - Note {:line_code=>["must be a valid line code"]}` となり、
   その指摘だけが投稿されずサマリへ回る。
+- **`old_line` だけを持つ指摘を、GitHubと違いインラインで示せる。**
+  上表のとおり `position` は `old_line` だけで成立するため、削除行への指摘をサマリへ落とす
+  必要が無い。ただし**新側の `line` が有効行に無い場合は、その `line` を落として `old_line`
+  だけで位置を決めさせる**（両方入れると `line_code` が不正になる）。
+- **有効行の判定はプロバイダ非依存の共通関数（`filter_findings_by_valid_lines`）が行い、
+  この `old_line` の扱いだけを第2引数 `allow_old_line` で切り替える**（issue #6。GitLabは
+  `true`、GitHubは既定の `false`）。範囲マップは新ファイル側しか持たないため `old_line` は
+  判定できず、**「判定できないものをどちらへ倒すか」の答えがプロバイダで正反対になる**のが
+  唯一の差だからである。
 - **MR作成直後は `diff_refs` が `null` のことがある**（実機確認）。1回だけ待って再取得し、
   それでも取れなければ終了コード1で失敗する。
 - 1件ごとにHTTPリクエストが発生する経路のため、findingごとに `jq` を起動しても起動コストは
@@ -364,6 +377,26 @@ issue #77 で追加・変更したもの。
 | `.claude/docs/spec/adversarial-review.md` | 「インライン以外のコメントもスレッドで投稿する」節 |
 | `.claude/docs/spec/issue-mr-workflow.md` | Provider関数一覧の `add_mr_inline_comments` 行 |
 | `.claude/skills/adversarial-review/SKILL.md` | 手順7（issue #106以前は手順8）の戻り値の説明 |
+
+### 追記: 有効行の判定を共通化し `old_line` の扱いを引数で切り替える（issue #6）
+
+`answer-talker`（issue #6）で、GitLabにも有効行の判定が必要になったことをきっかけに、
+**GitHub固有だった判定をプロバイダ非依存の共通関数へ引き上げた**。
+
+| ファイル | 内容 |
+|---|---|
+| `.claude/scripts/src/vcs/Provider.sh` | `valid_ranges_from_patches` / `filter_findings_by_valid_lines` を**新設**（後者は第2引数 `allow_old_line` を取る）。あわせて受講者ソース取得の5関数をディスパッチ |
+| `.claude/scripts/src/vcs/Github.sh` | `github_filter_findings_by_valid_lines` を**削除**し上記へ統合。`github_valid_ranges_from_files_json` は**残り**、`.patch` を `[{path, patch}]` へ正規化して共通関数へ渡す役割に変わった |
+| `.claude/scripts/src/vcs/Gitlab.sh` | `gitlab_valid_ranges_from_diffs_json` を**新設**（`diffs` を同じ形へ正規化）。`filter_findings_by_valid_lines` へ `allow_old_line` として `true` を渡す |
+| `.claude/skills/issue-mr-flow/SKILL.md` | `gh`/`glab` CLI不在時のMCP対応表へ、受講者ソース取得の5関数を追加 |
+| `.claude/scripts/test/test_vcs_provider.sh` | 有効行判定のテストを**両プロバイダ分へ拡張**（GitHub側だけを見ていた） |
+| `.claude/skills/adversarial-review/SKILL.md` / `.claude/agents/adversarial-reviewer.md` | 手順7の戻り値の説明と、削除行への指摘の書き方 |
+| `.claude/docs/spec/adversarial-review.md` | 本ドキュメント。「GitHubの投稿」「GitLabの投稿」節へ `old_line` を持つ指摘の扱いを追記 |
+
+**共通化の対象は判定ロジックであって、判定の答えではない。** `old_line` だけを持つ指摘を
+どちらへ倒すかはプロバイダで正反対（GitHubはサマリへ、GitLabはインラインへ）であり、
+**ここを共通化すると片方が壊れる**。issue #6 の実装中に実際に一度壊し、GitHubのレビュー投稿が
+`line: null` を含むことで全件失敗する状態を作った。第2引数での切り替えはその修正である。
 
 ## 設定項目
 

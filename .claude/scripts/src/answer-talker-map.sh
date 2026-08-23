@@ -4,11 +4,18 @@
 #
 # 使い方:
 #   answer-talker-map.sh --diff <diff.json> --reference-root <正解ルート>
-#     → {"matched":[{"submission":"…","reference":"…","by":"path"|"name"}],
+#                        [--submission-root <受講者ルート>]
+#     → {"scope":"full"|"diff",
+#        "matched":[{"submission":"…","reference":"…","by":"path"|"name"}],
 #        "referenceOnly":["…"],"submissionOnly":["…"],
 #        "reference":{"root":"…","files":["…"]}}
 #
-# 設計上の要点（reports/…answer-talker設計.md の D4）:
+# `--submission-root` を渡すと、対応付けの左辺が「受講者の**変更**ファイル」から
+# 「受講者の**全**ファイル」へ広がる（issue #6）。**`submissionOnly` の意味が変わる**ため、
+# どちらで動いたかを `scope` で返す（`full` = 正解に無いファイル、`diff` = 今回追加したファイル）。
+# 受講者ソースを取得できなかった場合（縮退）は `--submission-root` を渡さず、従来どおり動く。
+#
+# 設計上の要点（issue #1。正史は .claude/docs/spec/answer-talker.md）:
 #   - **機械的に決まるのは「同一パス」「ファイル名一致」まで。** 対応が付かなかった要素を
 #     「受講者がまだ作っていない分割単位」と見るか「別解として妥当な構成の違い」と見るかは、
 #     中身を読まなければ決まらない。その判断はサブエージェントに委ねる（このスクリプトは
@@ -80,12 +87,17 @@ build_mapping() {
 
 # build_mapping の出力（標準入力）をJSONへ変換する。
 # jqの起動は1回だけ（行ごとに起動しない）。
+# `scope` は `submissionOnly` の意味がどちらなのかを機械的に判別するためのキー（issue #6）。
+#   full … 受講者の全ファイルと突き合わせた。`submissionOnly` は「正解に無いファイル」
+#   diff … 受講者の変更ファイルだけと突き合わせた。`submissionOnly` は「今回追加したファイル」
+# **サブエージェント定義はこの値で読み方を変える。** 自然言語の条件分岐にすると読み違えが起きる。
 mapping_lines_to_json() {
-  local root="$1" reference_list="$2"
-  jq -R -s -c --arg root "$root" --arg refs "$reference_list" '
+  local root="$1" reference_list="$2" scope="${3:-diff}"
+  jq -R -s -c --arg root "$root" --arg refs "$reference_list" --arg scope "$scope" '
     def rows: split("\n") | map(select(length > 0) | split("\t"));
     rows as $r
     | {
+        scope: $scope,
         matched: [$r[] | select(.[0] == "matched") | {submission: .[1], reference: .[2], by: .[3]}],
         referenceOnly: [$r[] | select(.[0] == "referenceOnly") | .[1]],
         submissionOnly: [$r[] | select(.[0] == "submissionOnly") | .[1]],
@@ -99,14 +111,16 @@ mapping_lines_to_json() {
 
 usage() {
   printf 'usage: answer-talker-map.sh --diff <diff.json> --reference-root <正解ルート>\n' >&2
+  printf '                            [--submission-root <受講者ルート>]\n' >&2
 }
 
 main() {
-  local diff_file="" root=""
+  local diff_file="" root="" submission_root=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --diff) diff_file="${2:-}"; shift 2 ;;
       --reference-root) root="${2:-}"; shift 2 ;;
+      --submission-root) submission_root="${2:-}"; shift 2 ;;
       -h|--help) usage; return 2 ;;
       *) printf 'answer-talker-map: 不明な引数: %s\n' "$1" >&2; usage; return 2 ;;
     esac
@@ -121,13 +135,25 @@ main() {
     return 2
   fi
 
-  local submission_list reference_list
-  # 削除されたファイルは正解との対応付けの対象にしない。
-  submission_list="$(jq -r '.files[] | select(.status != "removed") | .path' "$diff_file" | tr -d '\r')"
+  local submission_list reference_list scope='diff'
+  if [ -n "$submission_root" ]; then
+    if [ ! -d "$submission_root" ]; then
+      printf 'answer-talker-map: --submission-root に既存のディレクトリを指定してください\n' >&2
+      return 2
+    fi
+    # **受講者の全ファイル**と突き合わせる（issue #6）。今回変更していないファイルに責務が
+    # 置かれている場合を見落とさないため。除外（生成物・バイナリ）は
+    # `answer-talker-submission.sh` が展開直後にツリーから削除済みである前提。
+    submission_list="$(list_reference_files "$submission_root")"
+    scope='full'
+  else
+    # 削除されたファイルは正解との対応付けの対象にしない。
+    submission_list="$(jq -r '.files[] | select(.status != "removed") | .path' "$diff_file" | tr -d '\r')"
+  fi
   reference_list="$(list_reference_files "$root")"
 
   build_mapping "$submission_list" "$reference_list" \
-    | mapping_lines_to_json "$root" "$reference_list"
+    | mapping_lines_to_json "$root" "$reference_list" "$scope"
 }
 
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then

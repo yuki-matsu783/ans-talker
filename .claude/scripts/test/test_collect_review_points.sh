@@ -6,6 +6,14 @@
 # （このリポジトリ自身を対象にすると、ルートの REVIEW-POINTS.md が常に存在するため
 #  「観点表が1つも無い場合」を検証できないため）。
 #
+# **このテストが検証しないもの**（issue #6）: 検証対象は最後まで一時フィクスチャであり、
+# **このリポジトリの実際の `REVIEW-POINTS.md` は1バイトも読まない**。したがって
+# 「観点表へ足した項目が収集経路に載るか」はここでは分からず、本テストが通ったことを
+# その根拠にしてはいけない（フィクスチャ専用であることは上記のとおり意図的な設計である）。
+# 実際の観点表を触ったときは、リポジトリルートで収集を1回流して確かめる。
+#
+#   bash .claude/scripts/src/collect-review-points.sh <対象ファイル> | grep -c '<足した語>'
+#
 # 規約: passed=N failures=N を標準出力へ出し、失敗があれば終了コード1。
 # 実行: bash .claude/scripts/test/test_collect_review_points.sh
 set -euo pipefail

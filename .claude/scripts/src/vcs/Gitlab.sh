@@ -351,8 +351,28 @@ gitlab_summary_post_kind() {
   fi
 }
 
+# `projects/:id/merge_requests/<n>/diffs` の出力（標準入力）を、Provider.sh の
+# `valid_ranges_from_patches` が受け取る `[{path, patch}]` へ正規化して渡す（純粋関数）。
+# 出力は `{path: [[start,end],...]}`。hunkヘッダの解釈は共通関数側が持つ。
+#
+# GitHub版（`gh api --paginate` は配列の応答を1つの配列へ統合する）と違い、`glab api --paginate`
+# はページごとの配列をそのまま並べて出力するため `jq -s` で束ねる（`gitlab_get_mr_changed_files`
+# と同じ扱い）。キー名も `filename`/`patch` ではなく `new_path`/`diff` である。
+gitlab_valid_ranges_from_diffs_json() {
+  jq -s -c '[(add // [])[] | {path: .new_path, patch: (.diff // "")}]' | valid_ranges_from_patches
+}
+
 # findings JSONファイルの指摘を、MRへインラインコメントとして投稿する。
 # 戻り値の形はGitHub版と揃える（呼び出し元にプロバイダ差を意識させない）。
+#
+# **投稿前に有効行で振り分ける点もGitHub版と揃えている**（issue #6）。とくに `line` を持たない
+# finding（ファイル全体にかかる指摘）は、そのファイルの有効行の最小値へ寄せる。以前は
+# `position` に `new_line` が無いままPOSTしてGitLabに拒否され、**GitHubならインラインで付く
+# 指摘がGitLabでは必ずサマリへ回る**という差があった（issue #1 から存在。実測で
+# GitHub `posted:1` に対しGitLab `posted:0, summarized:3`）。
+#
+# 振り分けたうえでPOSTの失敗も従来どおりサマリへ回す（GitLabは失敗理由を区別して返さないため、
+# 有効行の判定では拾えない理由——一過性の接続断など——が残る）。
 #
 # findingごとに `jq` を起動するが、1件ごとにHTTPリクエストが発生する経路であり、
 # 起動コストは無視できる（.claude/rules/shell-script-style.md「外部プロセス起動のコスト」は
@@ -374,8 +394,24 @@ gitlab_add_mr_inline_comments() {
     return 1
   fi
 
-  jq -c '(.findings // [])[]' "$findings_file" > "$tmpdir/findings.jsonl"
-  : > "$tmpdir/failed.jsonl"
+  # 有効行の範囲マップを作る。取得できなかった場合は振り分けを行わず、従来どおり全件の投稿を
+  # 試みる（ここで空のマップを渡すと、全件が「有効行なし」と判定されてサマリへ落ちてしまう）。
+  # ローカルGitLabでは一過性の接続断が実測で頻発するため、この分岐は例外処理ではなく通常経路。
+  if glab api "projects/:id/merge_requests/${mr_number}/diffs" --paginate > "$tmpdir/diffs.json" 2>/dev/null \
+     && [ -s "$tmpdir/diffs.json" ] \
+     && gitlab_valid_ranges_from_diffs_json < "$tmpdir/diffs.json" > "$tmpdir/ranges.json"; then
+    # 第2引数の `true` は「`old_line` を持つ指摘をpostへ通す」。GitLabの `position` は
+    # `old_line` だけでも成立するため（GitHubは受け付けないので既定の `false` のまま）。
+    filter_findings_by_valid_lines "$tmpdir/ranges.json" true < "$findings_file" > "$tmpdir/filtered.json"
+  else
+    printf 'gitlab_add_mr_inline_comments: MR %s の差分を取得できないため、有効行の判定を行わず全件の投稿を試みます\n' \
+      "$mr_number" >&2
+    jq -c '{post: (.findings // []), summary: []}' "$findings_file" > "$tmpdir/filtered.json"
+  fi
+
+  jq -c '.post[]' "$tmpdir/filtered.json" > "$tmpdir/findings.jsonl"
+  # 有効行で判定した時点でサマリ行きが決まった指摘を、POSTに失敗した指摘と同じ場所へ集める。
+  jq -c '.summary[]' "$tmpdir/filtered.json" > "$tmpdir/failed.jsonl"
   while IFS= read -r finding; do
     gitlab_build_discussion_body "$finding" "$diff_refs" "$label" > "$tmpdir/body.json"
     if glab api "projects/:id/merge_requests/${mr_number}/discussions" \
@@ -469,4 +505,74 @@ gitlab_get_mr_changed_files() {
             ]
           }
       ' | tr -d '\r'
+}
+
+# 受講者ソースの取得（issue #6）。GitHub側（Github.sh）とキー集合を一致させる。
+#
+# MRのsource側プロジェクトIDを返す（フォークから出されたMRに対応するため）。
+# 取得できない場合は空文字を返す（呼び出し側で縮退する）。
+# **`glab api` は `--jq` を受け付けない**（`gh api` と違う点。実機で確認）。パイプでjqへ渡す。
+#
+# **フォークでない場合は空を返す**（切り替え不要）。返す値は `GITLAB_REPO` へ入れるため
+# **`owner/repo` 形式でなければならない**——`source_project_id`（数値）をそのまま返すと、
+# `glab` が `projects/:id` を解決できなくなり、以降のAPI呼び出しがすべて失敗する（実機で確認）。
+# フォークのときだけ、追加の1回でパスを引く。
+gitlab_get_mr_head_repo() {
+  local mr_number="$1" mr src tgt
+  mr="$(glab api "projects/:id/merge_requests/${mr_number}" 2>/dev/null)" || return 0
+  [ -n "$mr" ] || return 0
+  src="$(printf '%s' "$mr" | jq -r '.source_project_id // ""')"
+  tgt="$(printf '%s' "$mr" | jq -r '.target_project_id // ""')"
+  [ -n "$src" ] && [ "$src" != "$tgt" ] || return 0
+  glab api "projects/${src}" 2>/dev/null | jq -r '.path_with_namespace // ""' | tr -d '\r'
+}
+
+# リポジトリのサイズをKB単位で返す（GitLabは**バイト単位**で返すためKBへ変換する）。
+# 取得できない場合は空文字を返す（`statistics` は権限によっては返らない。設計の決定により
+# 呼び出し側は「不明」として段1を試す）。
+gitlab_get_repo_size_kb() {
+  local bytes
+  bytes="$(glab api 'projects/:id?statistics=true' 2>/dev/null | jq -r '.statistics.repository_size // ""' | tr -d '\r')"
+  [ -n "$bytes" ] || return 0
+  printf '%s' "$((bytes / 1024))"
+}
+
+# ref配下の全ファイルを列挙する。
+#   → {"truncated":bool,"files":[{"path":"…","size":N|null}]}
+#
+# **GitLabのtree APIは `truncated` も `size` も持たない**（issue #6の調査で確認）。
+# `size` は常に null にする（キー集合は揃えるが、値の有無は揃わないことをspecへ明記する）。
+#
+# **`truncated` は常に `false` を返す。「算出していない」のではなく、算出する余地が無い。**
+# `--paginate` は全ページを取り切るか、途中で失敗して非0で終わるかのどちらかであり、
+# 「成功したが打ち切られた」という中間状態を返さない。失敗した場合はこの関数自体が
+# 非0で終わるため、呼び出し側（`fetch_stage2`）が段2の失敗として扱う。
+# GitHub側は tree API が返す**本物の** `truncated` を詰めるため、値の意味はプロバイダで
+# 揃っている（「この一覧は全件か」）。呼び出し側はどちらでも同じように参照してよい。
+gitlab_get_repo_tree() {
+  local ref="$1"
+  timeout "${ATR_HTTP_TIMEOUT_SEC:-60}" glab api "projects/:id/repository/tree?ref=${ref}&recursive=true&per_page=100" --paginate \
+    | jq -s -c '
+        (add // []) as $entries
+        | {
+            truncated: false,
+            files: [$entries[] | select(.type == "blob") | {path: .path, size: null}]
+          }
+      ' | tr -d '\r'
+}
+
+# ファイル1件の内容を標準出力へ出す（base64はデコード済み）。
+# **パス中の `/` を `%2F` へエンコードしないと404になる**（issue #6の調査で確認）。
+gitlab_get_repo_file() {
+  local ref="$1" path="$2" encoded
+  url_encode_path_to_reply "$path"
+  encoded="${REPLY//\//%2F}"
+  timeout "${ATR_HTTP_TIMEOUT_SEC:-60}" glab api "projects/:id/repository/files/${encoded}?ref=${ref}" 2>/dev/null \
+    | jq -r '.content // ""' | tr -d '\r\n' | base64 -d 2>/dev/null
+}
+
+# ref のアーカイブ（tar.gz）を指定パスへ保存する。
+gitlab_fetch_repo_archive() {
+  local ref="$1" out="$2"
+  timeout "${ATR_HTTP_TIMEOUT_SEC:-60}" glab api "projects/:id/repository/archive.tar.gz?sha=${ref}" > "$out"
 }

@@ -4,7 +4,7 @@ title: ドキュメント運用
 type: rule
 description: ドキュメントの置き場所・ライフサイクル（plans/worklog/spec/ddr/HANDOFF）を定めたルール
 tags: [docs, workflow, rule]
-keywords: [plans, handoff, worklog, 正史仕様, 意思決定ログ, ライフサイクル, issue-mr-flow, ループ進捗, always-apply]
+keywords: [plans, handoff, worklog, 正史仕様, 意思決定ログ, ライフサイクル, issue-mr-flow, ループ進捗, always-apply, 空行2連続, 見出しの差し込み]
 ---
 
 # ドキュメント運用
@@ -83,6 +83,35 @@ DDRは本文を一切変更せず、`git mv`による位置の移動のみを行
 - **同じ節名でもファイルごとに結論が変わる。** 同じ作業で `.claude/docs/spec/issue-mr-workflow.md` の
   同名節を見たところ、直後に地の文が無く、当初の位置のままで問題なかった。「別のファイルで同じ位置へ
   入れられたから安全」とは判断せず、ファイルごとに確認する。
+
+**差し込んだあとの空行の崩れは、目視ではなく機械的に検査する**（issue #6）。断片を連結する
+書き方（`{ sed -n '1,Np' f; cat 差し込み; sed -n 'M,$p' f; }`）では、差し込む側の先頭に空行が
+あると連結後に空行が2つ連続し、末尾の空行が無いと次の見出しが直前の段落へくっつく。
+`.claude/rules/shell-script-style.md`「差し込むファイルは、先頭に空行を置かず、末尾に空行を
+ちょうど1つ持たせる」に従っていても、**mdとHTMLの両方を触るときや差し込み箇所が複数あるときは
+繰り返し崩れる**。目視の確認（前後3行）は残したうえで、次を併せて流す。
+
+```bash
+awk 'FNR==1{prev="x"} prev=="" && $0=="" {print FILENAME":"FNR} {prev=$0}' <files...>
+```
+
+- **`NR` ではなく `FNR` を使い、ファイル先頭で `prev` を初期化する。** 複数ファイルを渡す
+  ことになるためで、素朴な `prev=="" && $0=="" {print FILENAME": "NR}` は2箇所で壊れる。
+  `NR` は全ファイル通算のレコード番号なので**実ファイルの行数を超えた行番号**を出し
+  （`sed -n` で開けない）、`prev` がファイル境界でリセットされないため
+  「前のファイルの末尾が空行・次のファイルの先頭が空行」を違反として**誤検知する**。
+  3ファイル（末尾が空行／先頭が空行／4行目に違反）へ流したところ、旧式は `b.md: 4`（誤検知）と
+  `c.md: 12`（正しくは4行目）を出し、上の式は `c.md:4` のみを出した。
+- **恒久ルールとして流す以上、空振りしないことを毎回確かめる**（ルート `REVIEW-POINTS.md`
+  「検証コマンドが、異常があるときに本当に検出できるか」）。違反を1つ作って検出できることを
+  見てから、本番のファイルへ流す。
+
+  ```bash
+  printf 'c1\nc2\n\n\nc5\n' > /tmp/awkcheck.md
+  awk 'FNR==1{prev="x"} prev=="" && $0=="" {print FILENAME":"FNR} {prev=$0}' /tmp/awkcheck.md
+  # → /tmp/awkcheck.md:4 が出ること。出なければ検査のほうが壊れている
+  rm -f /tmp/awkcheck.md
+  ```
 
 `HANDOFF.md`の「フロー進捗状況」表（`.claude/skills/issue-mr-flow/SKILL.md`の全体フローに対応）は、
 **どの行も進捗記号を1つだけ持つ**。「〜を合意まで繰り返す」と書かれたループ扱いのステップ
