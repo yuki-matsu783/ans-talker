@@ -47,11 +47,24 @@ keywords: [REVIEW-POINTS, shell-script-style, 空ファイル, grep -rlI, 変更
 
 ## やること3: `.claude/rules/docs-workflow.md` へ機械的検査を足す
 
-markdownへ節を差し込む際の**空行2連続の検査**（`awk 'prev=="" && $0==""'`）を、既存の
-「既存ドキュメントへ新しい見出しを差し込むときは…」の節へ追記する。
+markdownへ節を差し込む際の**空行2連続の検査**を、既存の「既存ドキュメントへ新しい見出しを
+差し込むときは…」の節へ追記する。**書く式は次の形にする**（`NR` ではなく `FNR`、かつ
+ファイル先頭で `prev` を初期化する）。
+
+```bash
+awk 'FNR==1{prev="x"} prev=="" && $0=="" {print FILENAME":"FNR} {prev=$0}' <files...>
+```
 
 - 既存の節は「**目視で**前後3行を確認する」と書いているが、今回はHTMLも含め繰り返し崩れた。
   目視の指示は残したうえで、**機械的に検査できる形**を併記する。
+- **素朴な `prev=="" && $0=="" {print FILENAME": "NR}` は複数ファイルを渡すと壊れる**
+  （フェーズ4の敵対的レビュー1回目の指摘）。`NR` は全ファイル通算のレコード番号なので
+  実ファイルの行数を超えた値が出て `sed -n` で開けず、`prev` がファイル境界でリセットされない
+  ため「前のファイルの末尾が空行・次のファイルの先頭が空行」を違反として誤検知する。
+  実際に3ファイル（末尾が空行／先頭が空行／4行目に違反）へ流したところ、旧式は
+  `b.md: 4`（誤検知）と `c.md: 12`（正しくは4行目）を出し、上の式は `c.md:4` のみを出した。
+- **恒久ルールとして載せる以上、意図的に空行を2つ並べたファイルへ流して検出できることを
+  確かめる手順も併記する**（観点表の「検証コマンドが空振りしないか」）。
 
 ## やること4: エージェント定義へ「本文はmarkdown」を明記する
 
@@ -86,9 +99,16 @@ findings スキーマの説明へ、**`body` はmarkdownとしてMRへ投稿さ�
 
 ```bash
 # 1. 変更したmdの空行2連続（今回足す検査自体を、今回の変更にも適用する）
-awk 'prev=="" && $0=="" {print FILENAME": "NR} {prev=$0}' \
+#    NR ではなく FNR を使い、ファイル先頭で prev を初期化する（複数ファイルを渡すため）
+awk 'FNR==1{prev="x"} prev=="" && $0=="" {print FILENAME":"FNR} {prev=$0}' \
   .claude/rules/*.md .claude/agents/*.md REVIEW-POINTS.md \
   .claude/skills/adversarial-review/SKILL.md
+
+# 1b. 上の検査が空振りしないことを確かめる（違反を作って検出できるか）
+printf 'c1\nc2\n\n\nc5\n' > /tmp/awkcheck.md
+awk 'FNR==1{prev="x"} prev=="" && $0=="" {print FILENAME":"FNR} {prev=$0}' /tmp/awkcheck.md
+#    → /tmp/awkcheck.md:4 が出ること。出なければ検査が壊れている
+rm -f /tmp/awkcheck.md
 
 # 2. 観点表が収集経路に載ることを確認する（ルート直下へ足したものが拾えるか）
 bash .claude/scripts/src/collect-review-points.sh .claude/scripts/src/vcs/Provider.sh \
