@@ -3,7 +3,7 @@ title: レビュー観点（.claude配下）
 type: review-points
 description: .claude配下のシェルスクリプト・スキル・ルール・エージェント定義に適用されるレビュー観点。
 tags: [review, review-points, shell]
-keywords: [bash, jq, フォーク, コマンド置換, NULバイト, CR混入, set -e, mainガード, テスト, Provider.sh, SKILL.md]
+keywords: [bash, jq, フォーク, コマンド置換, NULバイト, CR混入, set -e, mainガード, テスト, Provider.sh, SKILL.md, 空ファイル, truncated]
 ---
 
 # レビュー観点（.claude配下）
@@ -29,6 +29,9 @@ keywords: [bash, jq, フォーク, コマンド置換, NULバイト, CR混入, s
   （処理系がエスケープとして展開し、生のバイトが混入する）。
 - **git bashのパス変換**: ネイティブ実行ファイルへDOS形式フラグを渡すなら `//in` の形か。
   コンテナ内の絶対パスを渡すなら `MSYS_NO_PATHCONV=1` か。
+- **テキスト/バイナリ判定**: `grep -rlI -- ''` の補集合を「バイナリ」とみなしていないか
+  （**0バイトのファイルが落ちる**。行が無いためであって `-I` とは無関係）。`find -type f -empty`
+  で補い、**削除側と列挙側で判定を揃えて**いるか。
 
 ## スクリプトの作法
 
@@ -40,6 +43,11 @@ keywords: [bash, jq, フォーク, コマンド置換, NULバイト, CR混入, s
   （無いとテストで `source` した瞬間にハングする）。
 - 関数名がsnake_case、プロバイダ固有実装が `github_` / `gitlab_` 接頭辞か。
 - BOM無しUTF-8・LF改行か（新規 `.ps1` を作るなら**BOM付き**UTF-8か）。
+- **「取得できたものが全件」と暗黙に仮定していないか。** 列挙・取得の結果が欠けたときに、
+  それが `degraded:false` のような**正常応答のまま下流へ流れる**形になっていないか。
+  欠落を表すフラグ（`truncated` 等）を持たせるなら、**呼び出し側が実際にそれを見るところまで**
+  込みで設計する（issue #6 では、空ファイルが列挙から落ちる欠陥と、`truncated` が固定値で
+  誰も参照していない欠陥が、同じ形で並んで見つかった）。
 
 ## テスト
 

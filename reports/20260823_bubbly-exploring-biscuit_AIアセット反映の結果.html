@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIアセット反映の結果（issue #6）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-feature-settings: "palt"; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+<div class="max-w-6xl mx-auto px-6 py-10">
+
+  <header class="mb-10">
+    <p class="text-sm text-slate-500 mb-1">issue #6 ／ フェーズ4〈反映〉2セット目（AIアセット反映）／ 2026-08-23</p>
+    <h1 class="text-3xl font-bold text-slate-900">AIアセット反映の結果</h1>
+    <p class="mt-2 text-slate-600">計画: <span class="mono text-sm">plans/【AIアセット反映】受講者ソースの受け渡し.md</span></p>
+    <p class="mt-1 text-slate-600">正文: <span class="mono text-sm">reports/20260823_bubbly-exploring-biscuit_AIアセット反映の結果.md</span></p>
+  </header>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">反映の全体像</h2>
+    <div class="grid md:grid-cols-4 gap-4">
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-indigo-500">
+        <p class="text-3xl font-bold text-indigo-600">10</p>
+        <p class="text-xs text-slate-500 mb-2">ファイル</p>
+        <p class="text-sm">rules 2・REVIEW-POINTS 2・agents 2・skills 2・scripts 2</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-indigo-500">
+        <p class="text-3xl font-bold text-indigo-600">4</p>
+        <p class="text-xs text-slate-500 mb-2">件 追加</p>
+        <p class="text-sm">レビュー観点（ルート2件・<span class="mono">.claude/</span> 2件）</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
+        <p class="text-3xl font-bold text-emerald-600">2</p>
+        <p class="text-xs text-slate-500 mb-2">件 対応</p>
+        <p class="text-sm">未対応だった指摘 <span class="mono">#6</span>・<span class="mono">#8</span></p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
+        <p class="text-3xl font-bold text-emerald-600">0</p>
+        <p class="text-xs text-slate-500 mb-2">件</p>
+        <p class="text-sm">空行2連続の違反（空振りしないことも確認）</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">指摘 #6 — 説明そのものを実機で反証した</h2>
+    <div class="bg-white rounded-lg shadow-sm p-6">
+      <p class="text-sm text-slate-600 mb-4">
+        「<span class="mono">grep -rlI</span> の補集合を消すと <strong>0バイトのファイルがバイナリ扱いで削除される</strong>」という説明が
+        ルールと実装コメントの2箇所にあった。<strong>現象は正しいが、機序が誤っている。</strong>
+      </p>
+      <div class="grid md:grid-cols-2 gap-4 mb-4">
+        <div class="bg-rose-50 border border-rose-200 rounded p-4">
+          <p class="text-xs font-bold text-rose-700 mb-2">誤りだった説明</p>
+          <p class="text-sm text-slate-700"><span class="mono">-I</span> が空ファイルを<strong>バイナリと判定</strong>している</p>
+        </div>
+        <div class="bg-emerald-50 border border-emerald-200 rounded p-4">
+          <p class="text-xs font-bold text-emerald-700 mb-2">実際の機序</p>
+          <p class="text-sm text-slate-700">grepは<strong>行単位</strong>でマッチする。行が1つも無いのでどのパターンにも一致せず、列挙されないだけ。<span class="mono">-I</span> は関与していない</p>
+        </div>
+      </div>
+      <div class="bg-slate-900 text-slate-100 rounded p-4 mono text-xs leading-6 overflow-x-auto">
+        <div><span class="text-slate-400"># empty.py=0バイト / bin.dat=NULを含む / noeol.txt=末尾に改行が無い</span></div>
+        <div>grep -rlI -- '' .  <span class="text-emerald-300">→ ./noeol.txt ./text.txt</span>            <span class="text-slate-400">（empty.py が落ちる）</span></div>
+        <div>grep -rl&nbsp;&nbsp;-- '' .  <span class="text-emerald-300">→ ./bin.dat ./noeol.txt ./text.txt</span> <span class="text-amber-300">（-I を外しても落ちる）</span></div>
+      </div>
+      <ul class="mt-4 text-sm text-slate-600 space-y-1 list-disc list-inside">
+        <li><strong><span class="mono">-I</span> を外しても結果が変わらない</strong>ことが、バイナリ判定でない直接の証拠。</li>
+        <li><strong>末尾に改行が無いだけのファイルは列挙される</strong>ので、落ちるのは行が0のファイルに限る。</li>
+        <li><strong>実装側のコメントも同じ誤りを含んでいたので両方直した。</strong>ルールだけ直すと、次に読む人は実装を信じる。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">指摘 #8 — テストを増やさず、守備範囲を明示した</h2>
+    <div class="bg-white rounded-lg shadow-sm p-6">
+      <div class="grid md:grid-cols-3 gap-4 text-sm">
+        <div class="bg-slate-50 rounded p-4">
+          <p class="text-xs font-bold text-slate-500 mb-2">指摘</p>
+          <p><span class="mono">test_collect_review_points.sh</span> はフィクスチャ専用で、観点表の変更を検査できない</p>
+        </div>
+        <div class="bg-slate-50 rounded p-4">
+          <p class="text-xs font-bold text-slate-500 mb-2">採らなかった案</p>
+          <p>実リポジトリの <span class="mono">REVIEW-POINTS.md</span> へのアサーションを足す →
+          <strong class="text-rose-600">観点表を1行編集するたびにテストが落ちる</strong></p>
+        </div>
+        <div class="bg-emerald-50 rounded p-4">
+          <p class="text-xs font-bold text-emerald-700 mb-2">採った案</p>
+          <p>ヘッダへ<strong>「このテストが検証しないもの」</strong>と、代わりに流すコマンドを書いた</p>
+        </div>
+      </div>
+      <p class="mt-4 text-sm text-slate-600">
+        フィクスチャ専用なのは「観点表が1つも無い場合」を検証するための<strong>意図的な設計</strong>である。
+        危険なのは設計ではなく、<strong>「このテストが通れば観点表の変更も確認できた」という誤読</strong>のほう。
+      </p>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">追加したレビュー観点 4件</h2>
+    <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600">
+          <tr><th class="px-4 py-3 text-left">観点</th><th class="px-4 py-3 text-left w-32">置き場所</th><th class="px-4 py-3 text-left">由来</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr>
+            <td class="px-4 py-3 align-top">その確認は、<strong>変更箇所を通る入力</strong>で行ったか</td>
+            <td class="px-4 py-3 align-top mono text-xs">ルート</td>
+            <td class="px-4 py-3 align-top text-slate-600"><span class="mono">old_line</span> の分岐を足したのに、それを通る入力を一度も流さなかった</td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3 align-top">point-in-time記録の保護を<strong>出現件数で確かめない</strong></td>
+            <td class="px-4 py-3 align-top mono text-xs">ルート</td>
+            <td class="px-4 py-3 align-top text-slate-600">1セット目で、計画の期待値「1件」が実際には2件だった</td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3 align-top">テキスト/バイナリ判定（<span class="mono">grep -rlI</span> の補集合）</td>
+            <td class="px-4 py-3 align-top mono text-xs">.claude/</td>
+            <td class="px-4 py-3 align-top text-slate-600">既知の罠リストは <span class="mono">shell-script-style.md</span> と1対1で対応するため</td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3 align-top">「取得できたものが全件」と<strong>暗黙に仮定</strong>していないか</td>
+            <td class="px-4 py-3 align-top mono text-xs">.claude/</td>
+            <td class="px-4 py-3 align-top text-slate-600">空ファイルの欠落と <span class="mono">truncated</span> の固定値が、同じ形で並んで見つかった</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="mt-3 text-sm text-slate-600">
+      一般的な観点ほど上位へ置く方針に従い、<strong>ルート直下と <span class="mono">.claude/</span> 直下に振り分けた。</strong>
+      検証では両方が収集経路に載ることを確認している（祖先方向のマージが効いている）。
+    </p>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-amber-500 pl-3">計画外の追加 2件</h2>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="bg-white rounded-lg shadow-sm p-5 border-l-4 border-amber-400">
+        <p class="font-bold text-sm mb-2"><span class="mono">.claude/REVIEW-POINTS.md</span> への2件</p>
+        <p class="text-sm text-slate-600">計画はルート直下へ1件だけだった。既知の罠リストとの対応が崩れるため足した。</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-l-4 border-amber-400">
+        <p class="font-bold text-sm mb-2">フェーズを丸ごと1周増やすときの進捗表</p>
+        <p class="text-sm text-slate-600">
+          <span class="mono">add-round</span> が <span class="mono">[]</span> へ戻すのはループ範囲だけ。同じフェーズの単発ステップは手作業で戻す。
+          <strong>このissueで2度踏んだ</strong>（フェーズ3の2周目と、今回 <span class="mono">4-10</span> が <span class="mono">[x]</span> のまま残った）。
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-emerald-500 pl-3">検証結果</h2>
+    <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600">
+          <tr><th class="px-4 py-3 text-left w-12">#</th><th class="px-4 py-3 text-left">検証</th><th class="px-4 py-3 text-left">結果</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr><td class="px-4 py-3 mono">1</td><td class="px-4 py-3">変更したmdの空行2連続（<span class="mono">FNR</span> 版）</td><td class="px-4 py-3 text-emerald-700 font-bold">違反0件</td></tr>
+          <tr><td class="px-4 py-3 mono">1b</td><td class="px-4 py-3">上の検査が空振りしないこと</td><td class="px-4 py-3 text-emerald-700 font-bold mono text-xs">/tmp/awkcheck.md:4</td></tr>
+          <tr><td class="px-4 py-3 mono">2</td><td class="px-4 py-3">足した観点が収集経路に載ること</td><td class="px-4 py-3 text-emerald-700 font-bold">4件すべて1件ずつヒット</td></tr>
+          <tr><td class="px-4 py-3 mono">3</td><td class="px-4 py-3">frontmatterインデックスの再生成</td><td class="px-4 py-3 text-emerald-700 font-bold">失敗0件</td></tr>
+          <tr><td class="px-4 py-3 mono">4</td><td class="px-4 py-3"><span class="mono">test_collect_review_points.sh</span></td><td class="px-4 py-3 text-emerald-700 font-bold mono text-xs">passed=17 failures=0</td></tr>
+          <tr><td class="px-4 py-3 mono">5</td><td class="px-4 py-3">変更した <span class="mono">.sh</span> の構文チェック</td><td class="px-4 py-3 text-emerald-700 font-bold">2本とも OK</td></tr>
+          <tr><td class="px-4 py-3 mono">6</td><td class="px-4 py-3">全単体テスト</td><td class="px-4 py-3 text-emerald-700 font-bold mono text-xs">NG=0</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="text-xs text-slate-400 border-t border-slate-200 pt-4">
+    このHTMLは <span class="mono">reports/20260823_bubbly-exploring-biscuit_AIアセット反映の結果.md</span> の視覚化であり、結果の正文はmd側である。
+  </footer>
+
+</div>
+</body>
+</html>
