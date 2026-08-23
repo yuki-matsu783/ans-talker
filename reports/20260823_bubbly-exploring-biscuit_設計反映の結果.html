@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>設計反映の結果（issue #6）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-feature-settings: "palt"; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+<div class="max-w-6xl mx-auto px-6 py-10">
+
+  <header class="mb-10">
+    <p class="text-sm text-slate-500 mb-1">issue #6 ／ フェーズ4〈反映〉1セット目（設計反映）／ 2026-08-23</p>
+    <h1 class="text-3xl font-bold text-slate-900">設計反映の結果</h1>
+    <p class="mt-2 text-slate-600">計画: <span class="mono text-sm">plans/【設計反映】受講者ソースの受け渡し.md</span></p>
+    <p class="mt-1 text-slate-600">正文: <span class="mono text-sm">reports/20260823_bubbly-exploring-biscuit_設計反映の結果.md</span></p>
+  </header>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">反映したもの</h2>
+    <div class="grid md:grid-cols-4 gap-4">
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-indigo-500">
+        <p class="text-3xl font-bold text-indigo-600">471</p>
+        <p class="text-xs text-slate-500 mb-2">行（263行から）</p>
+        <p class="text-sm"><span class="mono">spec/answer-talker.md</span> を現在の正史へ</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-indigo-500">
+        <p class="text-3xl font-bold text-indigo-600">3</p>
+        <p class="text-xs text-slate-500 mb-2">箇所</p>
+        <p class="text-sm"><span class="mono">spec/adversarial-review.md</span>（仕様2節＋影響範囲の追記）</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
+        <p class="text-3xl font-bold text-emerald-600">4</p>
+        <p class="text-xs text-slate-500 mb-2">件 新設</p>
+        <p class="text-sm">DDR <span class="mono">0062</span>〜<span class="mono">0065</span></p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
+        <p class="text-3xl font-bold text-emerald-600">0</p>
+        <p class="text-xs text-slate-500 mb-2">件</p>
+        <p class="text-sm">過去記録（point-in-time）の書き換え</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">新設したDDR 4件</h2>
+    <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600">
+          <tr><th class="px-4 py-3 text-left w-16">番号</th><th class="px-4 py-3 text-left">決めたこと</th><th class="px-4 py-3 text-left">主な却下案</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr>
+            <td class="px-4 py-3 mono font-bold text-indigo-600 align-top">0062</td>
+            <td class="px-4 py-3 align-top">受講者ソースは<strong>アーカイブ一括取得</strong>を主経路とし3段で縮退する</td>
+            <td class="px-4 py-3 align-top text-slate-600">shallow clone を主経路にする（<span class="mono">.git</span> がネタバレ経路になる）／<span class="mono">matched</span> のみ取得（目的を達成しない）</td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3 mono font-bold text-indigo-600 align-top">0063</td>
+            <td class="px-4 py-3 align-top">縮退は <span class="mono">degraded</span> フラグで表し、<strong>エージェント定義を機械的に分岐</strong>させる</td>
+            <td class="px-4 py-3 align-top text-slate-600">定義へ無条件に新しい意味を書く（issue #6 と同型の不一致を再生産する）／取得失敗でスキルを中止する</td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3 mono font-bold text-indigo-600 align-top">0064</td>
+            <td class="px-4 py-3 align-top">有効行の判定は共通関数へ寄せ、<span class="mono">old_line</span> の扱いだけを第2引数で切り替える</td>
+            <td class="px-4 py-3 align-top text-slate-600">GitHubのロジックをGitLabへ複製（二重管理）／<span class="mono">side:"LEFT"</span> へ写像（判定の入力が倍になる）</td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3 mono font-bold text-indigo-600 align-top">0065</td>
+            <td class="px-4 py-3 align-top">対応付けと禁止語の材料を<strong>受講者ソース全体へ広げる</strong></td>
+            <td class="px-4 py-3 align-top text-slate-600">広げない（目的の指摘だけが選択的に落ちる）／除外語で調整する（DDR 0061 を無言で反転させる）</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-4 bg-amber-50 border-l-4 border-amber-400 p-4 rounded">
+      <p class="text-sm font-bold text-amber-800 mb-1">既存DDRは1件も無効化していない</p>
+      <p class="text-sm text-slate-700"><strong>DDR 0047</strong>（位置指定の縮退）は方針が維持されており、0064 は実装の置き場所を変えただけ——<strong>無効化ではなく詳細化</strong>。<strong>DDR 0061</strong>（誤検知の側へ倒す）も、材料を広げることは差し引く量を増やすだけなので、<strong>禁止語は減りこそすれ増えない</strong>。効くのは誤検知が減る方向のみである。</p>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-rose-500 pl-3">検証3の期待値が誤っていた</h2>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-rose-400">
+        <p class="text-xs font-bold text-rose-600 mb-2">計画の期待値（誤り）</p>
+        <p class="mono text-xs bg-slate-100 p-3 rounded mb-2">github_filter_findings_by_valid_lines: 1</p>
+        <p class="text-sm">issue #6 のエントリが「この関数を<strong>削除した</strong>」と書く以上、そこにも関数名が現れる。<strong>正しくは2件。</strong></p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-t-4 border-emerald-500">
+        <p class="text-xs font-bold text-emerald-600 mb-2">代わりに使った検査</p>
+        <p class="mono text-xs bg-slate-100 p-3 rounded mb-2">git diff -- …/adversarial-review.md<br>&nbsp;&nbsp;| grep -c '^-.*github_filter_…'  → 0</p>
+        <p class="text-sm"><strong>エントリを何行書き足しても影響を受けない。</strong>守りたいのは出現数ではなく「issue #77 の表の行が変わっていない」ことだった。</p>
+      </div>
+    </div>
+    <p class="mt-4 text-sm text-slate-600"><strong>件数による検査は、文書が育つと必ず期待値の更新を要求してくる。</strong> point-in-time記録の保護には向かない。</p>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-emerald-500 pl-3">新設した検証5が拾った2件</h2>
+    <p class="text-sm text-slate-600 mb-4">敵対的レビューの指摘 #5（「<span class="mono">answer-talker.md</span> の内容を検査する検証が無い」）への対応として、specの記述を実装と機械的に突き合わせる検証を足した。<strong>どちらも「実装を見ずに書いた」ことが原因</strong>で、指摘が問題にしていた形そのものだった。</p>
+    <div class="space-y-3">
+      <div class="bg-white rounded-lg shadow-sm p-5 border-l-4 border-rose-400">
+        <p class="text-sm font-bold text-slate-900 mb-1">1. 手順番号の作り話</p>
+        <p class="text-sm text-slate-700">全体像の図に「手順4以降が1つずつ後ろへずれた」と書いたが、<strong>実装は番号をずらさず <span class="mono">手順3b</span> を使っている</strong>。SKILL.md の見出しを機械的に列挙して気づいた。</p>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm p-5 border-l-4 border-amber-400">
+        <p class="text-sm font-bold text-slate-900 mb-1">2. <span class="mono">reason</span> の実例の漏れ</p>
+        <p class="text-sm text-slate-700">specの例に <span class="mono">head-sha-unavailable</span> が無かった（実装には存在する）。<strong>報告でそのまま人間の目に触れる文字列</strong>なので追加した。</p>
+      </div>
+    </div>
+    <div class="mt-4 bg-white rounded-lg shadow-sm p-5">
+      <p class="text-sm font-bold text-slate-900 mb-2">突き合わせた項目（すべて一致）</p>
+      <div class="grid md:grid-cols-3 gap-2 text-sm text-slate-700">
+        <p>Provider関数 5件</p><p>CLIオプション 4件</p><p>定数 5件</p>
+        <p>既定値 4件</p><p><span class="mono">scope</span>／<span class="mono">materialScope</span> の値</p><p><span class="mono">手順3b</span> の存在</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-indigo-500 pl-3">検証の結果</h2>
+    <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600">
+          <tr><th class="px-4 py-3 text-left w-10">#</th><th class="px-4 py-3 text-left">検証</th><th class="px-4 py-3 text-left">結果</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr><td class="px-4 py-3 mono">1</td><td class="px-4 py-3">frontmatterインデックス再生成</td><td class="px-4 py-3 text-emerald-700"><span class="mono">files=125 built=9 failed=0</span>。0062〜0065 が引ける</td></tr>
+          <tr><td class="px-4 py-3 mono">2</td><td class="px-4 py-3">DDR番号の重複</td><td class="px-4 py-3 text-emerald-700"><span class="mono">duplicateDdrNumbers: []</span></td></tr>
+          <tr><td class="px-4 py-3 mono">3</td><td class="px-4 py-3">関数名でのspec照合</td><td class="px-4 py-3 text-amber-700">期待値を訂正のうえ通過（左記）</td></tr>
+          <tr><td class="px-4 py-3 mono">4</td><td class="px-4 py-3">空行2連続・末尾改行</td><td class="px-4 py-3 text-emerald-700">違反0件。<strong>空振りしないことも確認</strong></td></tr>
+          <tr><td class="px-4 py-3 mono">5</td><td class="px-4 py-3">specの記述と実装の突き合わせ（新規）</td><td class="px-4 py-3 text-emerald-700">2件を修正のうえ全項目一致</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="mb-6">
+    <h2 class="text-xl font-bold text-slate-900 mb-4 border-l-4 border-slate-400 pl-3">未対応のまま残るもの</h2>
+    <ul class="space-y-2 text-sm text-slate-700">
+      <li class="bg-white rounded-lg shadow-sm p-4">GitHub<strong>非公開</strong>リポジトリでのアーカイブ取得は未確認。specの未決定事項へ「<strong>確かめられなかったのであって、動かないのではない</strong>」という区別込みで記録した</li>
+      <li class="bg-white rounded-lg shadow-sm p-4">上限値（100MB・50件・500件・60秒）の妥当性は未検証。検証対象は最大5ファイルで<strong>一度も上限に触れていない</strong></li>
+      <li class="bg-white rounded-lg shadow-sm p-4">敵対的レビューの指摘 <strong>#6・#8</strong> は <span class="mono">【AIアセット反映】</span> の担当</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>
